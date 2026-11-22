@@ -56,10 +56,10 @@ Exit code 0 = success; 10 = the server part failed (see `C:\ProgramData\TruckGat
 1. Start menu → **TruckGate Gate Station**. It opens TruckGate in Chrome (or Edge if Chrome is not installed) in its own window, with silent receipt printing.
 2. Sign in with the administrator account.
 3. In the tabs (administrator):
+   - **الكاميرات / Cameras**: **first create the gate** (code and name, e.g. `G1` / `Main gate`) — the gate page stays empty («اختر البوابة») until a gate exists. Then discover ONVIF cameras or enter snapshot URLs and assign them to the gate.
    - **الشاحنات والسائقون / Fleet**: trucks (number, plate) and drivers.
    - **المستخدمون / Users**: gatekeepers (PIN), quarry operators (PIN), supervisors, accountant.
    - **هواتف المقلع / Phones**: create the quarry site and draw its boundary (GPS points), then enroll the phones (section 4).
-   - **الكاميرات / Cameras**: discover ONVIF cameras or enter snapshot URLs.
    - **الإعدادات / Settings**: trip price (1400.00 DZD), WhatsApp and SMS alerts (see `docs/OPERATIONS.md`).
 4. **Receipt printer at the gate**: install the printer's Windows driver and make it the **Windows default printer**. The Gate Station shortcut prints receipts to the default printer without a dialog.
 5. **Barcode scanner**: USB scanner in keyboard mode, sending Enter after the code. Click in the scan field on the gate page.

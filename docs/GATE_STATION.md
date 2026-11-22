@@ -18,6 +18,11 @@ TruckGate server on the factory LAN. Nothing at the gate needs the internet.
 
 ## 2. Install the server
 
+**Windows:** use `TruckGate-Windows-Setup.exe` (it contains the server, PostgreSQL 16 and everything
+they need, and sets up the services); see `release/INSTALLATION_GUIDE.md`. The manual steps below
+are for Linux or for building from source.
+
+
 ```bash
 # 1. Database roles and database (once). Choose two strong passwords.
 psql -U postgres -v owner_pw='…' -v app_pw='…' -f deploy/db-setup.sql
