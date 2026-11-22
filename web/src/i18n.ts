@@ -71,7 +71,8 @@ const ar = {
   csv: 'تنزيل CSV (Excel)', recordPayment: 'تسجيل الدفع', confirmPayment: 'تسجيل دفع {n} رحلة بمجموع {total}؟ تصبح الرحلات مدفوعة نهائياً.',
   note: 'ملاحظة', batches: 'الدفعات المسجلة', priceNotSet: 'حدد سعر الرحلة في الإعدادات أولاً',
   settings: 'الإعدادات', alertChannels: 'قنوات التنبيه', telegramToken: 'رمز بوت Telegram', tokenSet: 'الرمز محفوظ (مشفّر)',
-  testSms: 'تجربة SMS', testTelegram: 'تجربة Telegram', testOk: 'أُرسلت الرسالة التجريبية', lastSync: 'آخر مزامنة',
+  testSms: 'تجربة SMS', testTelegram: 'تجربة Telegram', testWhatsapp: 'تجربة WhatsApp',
+  whatsappToken: 'رمز الوصول لـ WhatsApp (Meta)', routerPassword: 'كلمة مرور واجهة الراوتر', secretSet: 'محفوظ (مشفّر)', testOk: 'أُرسلت الرسالة التجريبية', lastSync: 'آخر مزامنة',
   saved: 'تم الحفظ',
   error: 'خطأ', close: 'إغلاق', yes: 'نعم', no: 'لا', none: '—',
 } as const
@@ -148,7 +149,8 @@ const fr: Record<Key, string> = {
   csv: 'Télécharger CSV (Excel)', recordPayment: 'Enregistrer le paiement', confirmPayment: 'Enregistrer le paiement de {n} voyages pour {total} ? Ils seront définitivement payés.',
   note: 'Note', batches: 'Paiements enregistrés', priceNotSet: "Définissez d'abord le prix par voyage dans les paramètres",
   settings: 'Paramètres', alertChannels: "Canaux d'alerte", telegramToken: 'Jeton du bot Telegram', tokenSet: 'Jeton enregistré (chiffré)',
-  testSms: 'Tester SMS', testTelegram: 'Tester Telegram', testOk: 'Message de test envoyé', lastSync: 'Dernière synchro',
+  testSms: 'Tester SMS', testTelegram: 'Tester Telegram', testWhatsapp: 'Tester WhatsApp',
+  whatsappToken: "Jeton d'accès WhatsApp (Meta)", routerPassword: "Mot de passe de l'interface du routeur", secretSet: 'Enregistré (chiffré)', testOk: 'Message de test envoyé', lastSync: 'Dernière synchro',
   saved: 'Enregistré',
   error: 'Erreur', close: 'Fermer', yes: 'Oui', no: 'Non', none: '—',
 }

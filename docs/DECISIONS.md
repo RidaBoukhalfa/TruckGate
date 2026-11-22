@@ -99,9 +99,16 @@ labeled frames kept permanently; trip evidence kept per accounting rules.
 | Review | One decision per trip closes all its open reviews; reject needs a reason; decisions are final |
 | Random sample | 5 % of yesterday's accepted trips, at least one, every night |
 | AI labels | Per picture: load, plate text, quality; latest wins, history kept; zip export with labels.jsonl |
-| Alerts | SMS through a GSM modem (works offline, UCS-2 Arabic, ≤ 10/h, critical by default); Telegram bot (internet); WhatsApp not supported; 5 attempts per channel; every attempt logged |
+| Alerts | WhatsApp through Meta's official Cloud API (approved utility template `truckgate_alert`, optional picture); SMS through the ZTE router's web interface or a USB GSM modem (works offline, UCS-2 Arabic, ≤ 10/h, critical by default); Telegram bot; unofficial WhatsApp Web tools refused (ban risk); 5 attempts per channel; every attempt logged |
 | Watchdog | Every minute: undecided entries, trucks never out, phones not synced 24 h, nightly sample; partial-load counters per driver and operator at decision time |
 | Phone sync | WorkManager whenever a network exists (≥ every 15 min) and right after each ticket; tickets, print counts and signed voids; photos only on Wi-Fi; requests signed with the auth key and time-stamped with the server clock |
 | Server checks on sync | Ticket signature with the phone's key, same number with different content → critical alert, void signature, photo SHA-256 equals the hash inside the ticket |
 | Payment | Statement per driver of `CLOSED` trips by entry date; CSV for Excel; recording a payment moves trips to `PAID` for good and keeps the batch |
 | Settings | Only known keys with bounds; quarry parameters reach phones in the signed configuration |
+
+## Site values given (factory pilot)
+| Item | Value |
+|---|---|
+| Price per trip | 1400.00 DZD (set in *Settings* → `trip.price_per_trip`) |
+| Factory internet | Yes — WhatsApp is the main alert channel |
+| Router / modem | ZTE 5G router — SMS through its web interface, to be confirmed with the Test button |

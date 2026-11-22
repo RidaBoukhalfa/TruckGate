@@ -44,29 +44,73 @@ Pictures failing their fingerprint are left out and listed.
 Raised automatically, for example: forged or reused ticket, forged or reused receipt, truck left loaded,
 truck never scanned out (default 2 h), entry left without a decision (10 min), quarry phone not synced
 for 24 h, repeated partial loads by the same driver or operator (3 in 7 days), camera down, evidence
-picture changed. Each is shown on screen until somebody marks it handled.
+picture changed. Each is shown on screen until somebody marks it handled, and sent on the channels below.
 
-### SMS without internet (GSM modem)
+Three channels, each optional, each with a **Test** button in *Settings*:
 
-1. Use a GSM modem that exposes a serial port accepting standard AT commands (industrial USB modems, SIM800 /
-   SIM7600 boards; USB dongles only in their "modem" mode, not the web-interface mode). Put in a SIM card
-   with credit and **no PIN**. Check the exact model with a test before buying several.
-2. Plug it into the server PC; find its port (Windows: Device Manager → *Ports (COM & LPT)*, e.g. `COM3`;
-   Linux: `/dev/ttyUSB0`, add the service user to the `dialout` group).
-3. *Settings*: set the port, the phone numbers (`+213…`), enable SMS, then **Test SMS**.
+| Channel | Needs | Good for |
+|---|---|---|
+| WhatsApp (official Cloud API) | Internet, a Meta business account, a dedicated number | Everyday alerts with the camera picture |
+| SMS through the ZTE router (or a USB modem) | The SIM in the router, **no internet** | Critical alerts when the internet is down |
+| Telegram | Internet, a bot | Free alternative to WhatsApp |
 
-SMS go only for the chosen minimum severity (default: critical), at most 10 per hour. Texts are short and
-Arabic-capable (70 characters per SMS).
+### WhatsApp (official WhatsApp Business Platform)
 
-### Telegram (needs internet at the factory)
+Only Meta's official API is used: tools that drive a normal WhatsApp account through WhatsApp Web break
+WhatsApp's terms and the number can be banned. The official way costs a small fee per message (Meta's
+rate card for utility messages in your country) and needs a one-time setup:
+
+1. **Number.** A phone number that is *not* used in the WhatsApp app (or delete WhatsApp from it first).
+   A new SIM works; it only has to receive the verification code once — it can sit in the ZTE router,
+   whose web page shows received SMS.
+2. **Meta setup.** On developers.facebook.com create an app of type *Business*, add the **WhatsApp**
+   product, add your number and verify it. Note the **Phone number ID** shown in *API setup*.
+3. **Permanent token.** In Meta Business Settings → *System users*: add a system user, assign the app and
+   the WhatsApp account, generate a token with `whatsapp_business_messaging` and
+   `whatsapp_business_management`. (The token shown in *API setup* expires within a day.)
+4. **Template.** In WhatsApp Manager → *Message templates* create a **Utility** template named
+   `truckgate_alert`, language Arabic (`ar`), body exactly with one variable inside the text:
+
+   > تنبيه من نظام TruckGate: {{1}}. يرجى المراجعة في لوحة التحكم.
+
+   Optional French version (language `fr`): *Alerte TruckGate : {{1}}. Merci de vérifier dans le tableau
+   de bord.* To receive the camera picture, add an **Image** header to the template and turn on
+   *attach picture*. Wait for the template to be **Approved** (usually minutes, up to 48 h).
+5. **TruckGate Settings:** WhatsApp phone number ID, recipients (`+213…`), template name and language,
+   minimum severity (default: medium), paste the token (stored encrypted), enable, **Test WhatsApp**.
+
+If the test fails, the message shows Meta's error code (for example 132001 = template name or language
+does not exist, 131030 = recipient not allowed while the app is in development mode, 190 = token expired).
+
+### SMS through the ZTE 5G router (no internet needed)
+
+The SIM in the router sends the SMS, the way the router's own web page does. ZTE does not document this
+interface and it differs between models and firmware versions, so **test it on your router**:
+
+1. Put a SIM with SMS credit in the router and check, from the router's web page, that you can send an
+   SMS by hand.
+2. *Settings*: SMS transport `ZTE_ROUTER`, router address (the page you open to manage it, often
+   `http://192.168.0.1`), router user only if the login page asks for one, recipients, enable; save the
+   router password; **Test SMS**.
+3. If the test reports *router refused the SMS* or a login error with the right password, send the model
+   and the *firmware version* (router page → device information) so the protocol can be adjusted. Until
+   then use WhatsApp/Telegram, or a USB GSM modem (transport `MODEM`).
+
+SMS go only for the chosen minimum severity (default: critical), at most 10 per hour, 70 Arabic characters
+each.
+
+### USB GSM modem (alternative)
+
+A modem exposing a serial port with standard AT commands (industrial USB modems, SIM800 / SIM7600 boards;
+USB dongles only in "modem" mode). Transport `MODEM`, port `COM3` (Windows) or `/dev/ttyUSB0` (Linux),
+SIM without PIN.
+
+### Telegram
 
 1. In Telegram talk to **@BotFather**, `/newbot`, copy the token (`123456:ABC…`).
 2. Create a group with the managers, add the bot, send a message, and get the group id (for example by
    opening `https://api.telegram.org/bot<TOKEN>/getUpdates` once; group ids start with `-100`).
-3. *Settings*: paste the token (stored encrypted), the chat ids, enable Telegram, **Test Telegram**.
-
-Telegram messages carry the camera picture of the scan when there is one. WhatsApp is not supported:
-it requires a Meta business account and an internet service; Telegram covers the same use.
+3. *Settings*: paste the token, the chat ids, enable Telegram, **Test Telegram**.
 
 ## Accountant (tab *Payments*)
 

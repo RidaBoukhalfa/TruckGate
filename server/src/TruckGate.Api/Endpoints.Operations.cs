@@ -97,6 +97,13 @@ internal static partial class Endpoints
             await svc.SetTelegramTokenAsync(r.Token, ctx.Actor(), ct);
             return Results.NoContent();
         });
+        // Telegram token, WhatsApp access token, router password: stored encrypted, never returned.
+        admin.MapPut("/channels/secrets/{key}", async (string key, TokenRequest r, AlertService svc, HttpContext ctx, CancellationToken ct) =>
+        {
+            if (!AlertService.SecretKeys.Contains(key)) throw TruckGateException.NotFound("SECRET_UNKNOWN", $"Unknown secret {key}.");
+            await svc.SetSecretAsync(key, r.Token, ctx.Actor(), ct);
+            return Results.NoContent();
+        });
         admin.MapPost("/channels/test", async (ChannelTestRequest r, AlertService svc, CancellationToken ct) =>
             Results.Ok(new { errors = await svc.TestAsync((r.Channel ?? "").ToUpperInvariant(), ct) }));
     }

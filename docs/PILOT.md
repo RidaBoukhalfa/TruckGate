@@ -15,8 +15,8 @@ process unchanged during the pilot** and compare every day.
 | Phones | 1–2 Android phones (Android 11+, fingerprint, GPS), enrolled at the factory, kiosk mode, Bluetooth printer paired and tested with Arabic, spare paper rolls, power bank |
 | Cameras | Rear-plate and cargo cameras added and tested **at night**; plate readable at the stopping point |
 | Gate PC | Chrome with `--kiosk-printing`, receipt printer, USB scanner in keyboard mode with Enter, tested on a printed ticket in daylight and at night |
-| Alerts | SMS modem tested to the manager's phone; Telegram if there is internet |
-| Price | Price per trip set; partial rate confirmed |
+| Alerts | WhatsApp template approved and tested to every manager; SMS through the ZTE router tested (critical alerts when the internet is down) |
+| Price | *Settings* → price per trip = **1400.00** (DZD); partial rate confirmed (100 % by the agreed rule) |
 
 ## Every day of the pilot
 

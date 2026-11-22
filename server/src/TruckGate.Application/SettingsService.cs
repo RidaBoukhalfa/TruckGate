@@ -45,6 +45,17 @@ public sealed class SettingsService(Db db)
         ["alerts.telegram_chat_ids"] = new("chats", 0, 10),
         ["alerts.telegram_min_severity"] = new("enum", Options: ["CRITICAL", "MEDIUM", "INFO"]),
         ["alerts.telegram_photos"] = new("bool"),
+        ["alerts.sms_transport"] = new("enum", Options: ["MODEM", "ZTE_ROUTER"]),
+        ["alerts.sms_router_url"] = new("string", 0, 200),
+        ["alerts.sms_router_user"] = new("string", 0, 64),
+        ["alerts.whatsapp_enabled"] = new("bool"),
+        ["alerts.whatsapp_phone_number_id"] = new("string", 0, 32),
+        ["alerts.whatsapp_recipients"] = new("phones", 0, 10),
+        ["alerts.whatsapp_template"] = new("string", 1, 512),
+        ["alerts.whatsapp_template_language"] = new("string", 2, 10),
+        ["alerts.whatsapp_min_severity"] = new("enum", Options: ["CRITICAL", "MEDIUM", "INFO"]),
+        ["alerts.whatsapp_photos"] = new("bool"),
+        ["alerts.whatsapp_api_version"] = new("string", 2, 8),
     };
 
     public Task<IReadOnlyList<SettingItem>> ListAsync(CancellationToken ct = default) =>
@@ -93,6 +104,16 @@ public sealed class SettingsService(Db db)
                 if (key == "site.timezone")
                     try { TimeZoneInfo.FindSystemTimeZoneById(s); }
                     catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException) { throw Bad(); }
+                var valid = key switch
+                {
+                    "alerts.sms_router_url" => s.Length == 0 || (Uri.TryCreate(s, UriKind.Absolute, out var u) && u.Scheme is "http" or "https"),
+                    "alerts.whatsapp_phone_number_id" => s.All(char.IsAsciiDigit),
+                    "alerts.whatsapp_template" => s.All(c => c is (>= 'a' and <= 'z') or (>= '0' and <= '9') or '_'),
+                    "alerts.whatsapp_template_language" => System.Text.RegularExpressions.Regex.IsMatch(s, "^[a-z]{2,3}(_[A-Z]{2})?$"),
+                    "alerts.whatsapp_api_version" => System.Text.RegularExpressions.Regex.IsMatch(s, @"^v\d{2}\.\d$"),
+                    _ => true,
+                };
+                if (!valid) throw Bad();
                 return JsonSerializer.Serialize(s);
             case "enum":
                 if (v.ValueKind != JsonValueKind.String || !r.Options!.Contains(v.GetString())) throw Bad();

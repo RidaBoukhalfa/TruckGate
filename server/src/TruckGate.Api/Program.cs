@@ -45,7 +45,13 @@ builder.Services.AddHttpClient("telegram", http => http.Timeout = TimeSpan.FromS
 builder.Services.AddSingleton<ITelegramSender>(sp => new TelegramSender(
     sp.GetRequiredService<IHttpClientFactory>().CreateClient("telegram"),
     builder.Configuration["Telegram:BaseUrl"] ?? "https://api.telegram.org"));
-builder.Services.AddSingleton<ISmsSender, SerialSmsSender>();
+builder.Services.AddHttpClient("whatsapp", http => http.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddSingleton<IWhatsAppSender>(sp => new WhatsAppSender(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient("whatsapp"),
+    builder.Configuration["WhatsApp:BaseUrl"] ?? "https://graph.facebook.com"));
+builder.Services.AddSingleton<SerialSmsSender>();
+builder.Services.AddSingleton(_ => new ZteRouterSmsSender());
+builder.Services.AddSingleton<ISmsSender, SmsSender>();
 builder.Services.AddSingleton<AlertService>();
 if (builder.Configuration["Background:Disabled"] != "true")
 {

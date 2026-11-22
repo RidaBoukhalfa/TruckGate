@@ -37,6 +37,17 @@ const labels: Record<string, [string, string]> = {
   'alerts.telegram_chat_ids': ['معرّفات محادثات Telegram (مفصولة بفاصلة)', 'Identifiants de discussions Telegram (virgules)'],
   'alerts.telegram_min_severity': ['أدنى خطورة لإرسال Telegram', 'Gravité minimale pour Telegram'],
   'alerts.telegram_photos': ['إرفاق صورة الكاميرا في Telegram', 'Joindre la photo dans Telegram'],
+  'alerts.sms_transport': ['طريقة إرسال SMS (MODEM مودم USB، ZTE_ROUTER راوتر ZTE)', "Envoi des SMS (MODEM USB ou ZTE_ROUTER)"],
+  'alerts.sms_router_url': ['عنوان واجهة الراوتر (مثلاً http://192.168.0.1)', 'Adresse du routeur (ex. http://192.168.0.1)'],
+  'alerts.sms_router_user': ['اسم مستخدم الراوتر (فارغ إذا لا يطلبه)', 'Utilisateur du routeur (vide si non demandé)'],
+  'alerts.whatsapp_enabled': ['تفعيل WhatsApp', 'Activer WhatsApp'],
+  'alerts.whatsapp_phone_number_id': ['معرّف رقم الهاتف (Phone number ID من Meta)', 'Identifiant du numéro (Phone number ID Meta)'],
+  'alerts.whatsapp_recipients': ['أرقام WhatsApp المستلمة (مفصولة بفاصلة)', 'Numéros WhatsApp destinataires (virgules)'],
+  'alerts.whatsapp_template': ['اسم القالب المعتمد', 'Nom du modèle approuvé'],
+  'alerts.whatsapp_template_language': ['لغة القالب (ar أو fr)', 'Langue du modèle (ar ou fr)'],
+  'alerts.whatsapp_min_severity': ['أدنى خطورة لإرسال WhatsApp', 'Gravité minimale pour WhatsApp'],
+  'alerts.whatsapp_photos': ['إرفاق صورة (القالب يجب أن يحتوي رأس صورة)', 'Joindre la photo (modèle avec en-tête image)'],
+  'alerts.whatsapp_api_version': ['نسخة Graph API', 'Version Graph API'],
 }
 
 function toInput(s: SettingItem): string {
@@ -64,6 +75,8 @@ export default function SettingsPage() {
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [channels, setChannels] = useState<ChannelStatus | null>(null)
   const [token, setToken] = useState('')
+  const [waToken, setWaToken] = useState('')
+  const [routerPass, setRouterPass] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const act = useAction()
 
@@ -79,7 +92,13 @@ export default function SettingsPage() {
     setNotice(t('saved'))
     await load()
   })
-  const test = (channel: 'SMS' | 'TELEGRAM') => act.run(async () => {
+  const saveSecret = (key: string, value: string, reset: () => void) => act.run(async () => {
+    await api.put(`/api/admin/channels/secrets/${encodeURIComponent(key)}`, { token: value })
+    reset()
+    setNotice(t('saved'))
+    await load()
+  })
+  const test = (channel: 'SMS' | 'TELEGRAM' | 'WHATSAPP') => act.run(async () => {
     const r = await api.post<{ errors: string[] }>('/api/admin/channels/test', { channel })
     setNotice(r.errors.length ? r.errors.join(' · ') : t('testOk'))
   })
@@ -96,17 +115,30 @@ export default function SettingsPage() {
       {notice && <div className="card ok" onClick={() => setNotice(null)}>{notice}</div>}
       <Section title={t('alertChannels')}>
         {channels && (
-          <p className="small muted">
-            SMS: {channels.smsEnabled ? '✓' : '✗'} {channels.smsPort} → {channels.smsRecipients.join(', ') || '—'} ·
-            Telegram: {channels.telegramEnabled ? '✓' : '✗'} {channels.telegramTokenSet ? t('tokenSet') : ''} → {channels.telegramChatIds.join(', ') || '—'}
-          </p>
+          <ul className="small muted">
+            <li>SMS: {channels.smsEnabled ? '✓' : '✗'} {channels.smsTransport === 'ZTE_ROUTER'
+              ? `${channels.smsRouterUrl} ${channels.smsRouterPasswordSet ? '(' + t('secretSet') + ')' : ''}` : channels.smsPort}
+              {' → '}{channels.smsRecipients.join(', ') || '—'}</li>
+            <li>WhatsApp: {channels.whatsappEnabled ? '✓' : '✗'} {channels.whatsappPhoneNumberId}
+              {channels.whatsappTokenSet ? ` (${t('secretSet')})` : ''} · {channels.whatsappTemplate}
+              {' → '}{channels.whatsappRecipients.join(', ') || '—'}</li>
+            <li>Telegram: {channels.telegramEnabled ? '✓' : '✗'} {channels.telegramTokenSet ? t('tokenSet') : ''}
+              {' → '}{channels.telegramChatIds.join(', ') || '—'}</li>
+          </ul>
         )}
         <div className="row">
-          <label>{t('telegramToken')}<input type="password" className="wide" value={token} onChange={(e) => setToken(e.target.value)} placeholder="123456:ABC…" /></label>
-          <button disabled={!token} onClick={() => act.run(async () => {
-            await api.put('/api/admin/channels/telegram-token', { token }); setToken(''); setNotice(t('saved')); await load()
-          })}>{t('save')}</button>
+          <label>{t('whatsappToken')}<input type="password" className="wide" value={waToken} onChange={(e) => setWaToken(e.target.value)} placeholder="EAAG…" /></label>
+          <button disabled={!waToken} onClick={() => saveSecret('whatsapp.access_token', waToken, () => setWaToken(''))}>{t('save')}</button>
+          <button onClick={() => test('WHATSAPP')} disabled={act.busy}>{t('testWhatsapp')}</button>
+        </div>
+        <div className="row">
+          <label>{t('routerPassword')}<input type="password" value={routerPass} onChange={(e) => setRouterPass(e.target.value)} /></label>
+          <button disabled={!routerPass} onClick={() => saveSecret('sms.router_password', routerPass, () => setRouterPass(''))}>{t('save')}</button>
           <button onClick={() => test('SMS')} disabled={act.busy}>{t('testSms')}</button>
+        </div>
+        <div className="row">
+          <label>{t('telegramToken')}<input type="password" className="wide" value={token} onChange={(e) => setToken(e.target.value)} placeholder="123456:ABC…" /></label>
+          <button disabled={!token} onClick={() => saveSecret('telegram.bot_token', token, () => setToken(''))}>{t('save')}</button>
           <button onClick={() => test('TELEGRAM')} disabled={act.busy}>{t('testTelegram')}</button>
         </div>
       </Section>

@@ -5,27 +5,37 @@ using TruckGate.Data;
 namespace TruckGate.Application.Alerts;
 
 public sealed record AlertItem(long Id, string Type, string Severity, string? Entity, string? EntityId, string Params,
-    DateTime CreatedAt, DateTime? SmsSentAt, DateTime? TelegramSentAt, string? AckByName, DateTime? AckAt, int FailedDeliveries);
+    DateTime CreatedAt, DateTime? SmsSentAt, DateTime? TelegramSentAt, DateTime? WhatsappSentAt, string? AckByName, DateTime? AckAt,
+    int FailedDeliveries);
 
-public sealed record ChannelStatus(bool SmsEnabled, string SmsPort, IReadOnlyList<string> SmsRecipients, string SmsMinSeverity,
-    bool TelegramEnabled, bool TelegramTokenSet, IReadOnlyList<string> TelegramChatIds, string TelegramMinSeverity, string Language);
+public sealed record ChannelStatus(bool SmsEnabled, string SmsTransport, string SmsPort, string SmsRouterUrl, bool SmsRouterPasswordSet,
+    IReadOnlyList<string> SmsRecipients, string SmsMinSeverity,
+    bool TelegramEnabled, bool TelegramTokenSet, IReadOnlyList<string> TelegramChatIds, string TelegramMinSeverity,
+    bool WhatsappEnabled, bool WhatsappTokenSet, string WhatsappPhoneNumberId, IReadOnlyList<string> WhatsappRecipients,
+    string WhatsappTemplate, string WhatsappMinSeverity, string Language);
 
 public sealed record DispatchReport(int Sent, int Failed, int Skipped);
 
 /// <summary>
-/// Alerts: list and acknowledge on screen; deliver by SMS (GSM modem, no internet needed) and by
-/// Telegram. Every delivery attempt is logged; an alert is retried up to 5 times per channel.
+/// Alerts: list and acknowledge on screen; deliver by SMS (GSM modem or the 4G/5G router, no internet
+/// needed), by WhatsApp (official Cloud API) and by Telegram. Every delivery attempt is logged; an alert
+/// is retried up to 5 times per channel.
 /// </summary>
-public sealed class AlertService(Db db, SecretBox secrets, ITelegramSender telegram, ISmsSender sms, StorageOptions storage)
+public sealed class AlertService(Db db, SecretBox secrets, ITelegramSender telegram, ISmsSender sms, IWhatsAppSender whatsapp,
+    StorageOptions storage)
 {
     private static readonly Actor DispatchActor = Actor.System("alerts");
     public const string TelegramTokenKey = "telegram.bot_token";
+    public const string WhatsAppTokenKey = "whatsapp.access_token";
+    public const string RouterPasswordKey = "sms.router_password";
+    public static readonly string[] SecretKeys = [TelegramTokenKey, WhatsAppTokenKey, RouterPasswordKey];
     private const int MaxAttempts = 5;
 
     public Task<IReadOnlyList<AlertItem>> ListAsync(bool openOnly, int limit, CancellationToken ct = default) =>
         db.ReadAsync<IReadOnlyList<AlertItem>>(async conn => (await conn.QueryAsync<AlertItem>("""
             SELECT a.id, a.type, a.severity, a.entity, a.entity_id AS entityid, a.params::text AS params, a.created_at AS createdat,
-                   a.sms_sent_at AS smssentat, a.telegram_sent_at AS telegramsentat, u.full_name AS ackbyname, a.ack_at AS ackat,
+                   a.sms_sent_at AS smssentat, a.telegram_sent_at AS telegramsentat, a.whatsapp_sent_at AS whatsappsentat,
+                   u.full_name AS ackbyname, a.ack_at AS ackat,
                    (SELECT count(*)::int FROM tg.alert_deliveries d WHERE d.alert_id = a.id AND NOT d.ok) AS faileddeliveries
             FROM tg.alerts a LEFT JOIN tg.users u ON u.id = a.ack_by
             WHERE (NOT @openOnly OR a.ack_at IS NULL)
@@ -47,25 +57,41 @@ public sealed class AlertService(Db db, SecretBox secrets, ITelegramSender teleg
         db.ReadAsync(async conn =>
         {
             var s = await SettingsBag.LoadAsync(conn);
-            var tokenSet = await conn.ExecuteScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM tg.channel_secrets WHERE key = @k)",
-                new { k = TelegramTokenKey });
-            return new ChannelStatus(s.Bool("alerts.sms_enabled", false), s.String("alerts.sms_port", ""),
+            var set = (await conn.QueryAsync<string>("SELECT key FROM tg.channel_secrets")).ToHashSet(StringComparer.Ordinal);
+            return new ChannelStatus(s.Bool("alerts.sms_enabled", false), s.String("alerts.sms_transport", SmsConfig.Modem),
+                s.String("alerts.sms_port", ""), s.String("alerts.sms_router_url", ""), set.Contains(RouterPasswordKey),
                 s.Strings("alerts.sms_recipients"), s.String("alerts.sms_min_severity", "CRITICAL"),
-                s.Bool("alerts.telegram_enabled", false), tokenSet, s.Strings("alerts.telegram_chat_ids"),
-                s.String("alerts.telegram_min_severity", "MEDIUM"), s.String("alerts.language", "ar"));
+                s.Bool("alerts.telegram_enabled", false), set.Contains(TelegramTokenKey), s.Strings("alerts.telegram_chat_ids"),
+                s.String("alerts.telegram_min_severity", "MEDIUM"),
+                s.Bool("alerts.whatsapp_enabled", false), set.Contains(WhatsAppTokenKey), s.String("alerts.whatsapp_phone_number_id", ""),
+                s.Strings("alerts.whatsapp_recipients"), s.String("alerts.whatsapp_template", "truckgate_alert"),
+                s.String("alerts.whatsapp_min_severity", "MEDIUM"), s.String("alerts.language", "ar"));
         }, ct);
 
-    public Task SetTelegramTokenAsync(string token, Actor actor, CancellationToken ct = default)
+    public Task SetTelegramTokenAsync(string token, Actor actor, CancellationToken ct = default) =>
+        SetSecretAsync(TelegramTokenKey, token, actor, ct);
+
+    /// <summary>Stores a channel secret encrypted (key file outside the database); never copied to the audit log.</summary>
+    public Task SetSecretAsync(string key, string value, Actor actor, CancellationToken ct = default)
     {
-        var t = (token ?? "").Trim();
-        if (t.Length is < 20 or > 100 || !t.Contains(':'))
-            throw TruckGateException.Validation("TOKEN_INVALID", "This does not look like a Telegram bot token (123456:ABC...).");
+        var v = (value ?? "").Trim();
+        var ok = key switch
+        {
+            TelegramTokenKey => v.Length is >= 20 and <= 100 && v.Contains(':'),
+            WhatsAppTokenKey => v.Length is >= 20 and <= 1000 && !v.Any(char.IsWhiteSpace),
+            RouterPasswordKey => v.Length is >= 1 and <= 128,
+            _ => false,
+        };
+        if (!ok)
+            throw TruckGateException.Validation("TOKEN_INVALID", key == TelegramTokenKey
+                ? "This does not look like a Telegram bot token (123456:ABC...)."
+                : "Invalid value.");
         return db.InTransactionAsync(actor, async (conn, tx) =>
         {
             await conn.ExecuteAsync("""
-                INSERT INTO tg.channel_secrets (key, value_enc) VALUES (@k, @v)
+                INSERT INTO tg.channel_secrets (key, value_enc) VALUES (@key, @v)
                 ON CONFLICT (key) DO UPDATE SET value_enc = @v, updated_at = now()
-                """, new { k = TelegramTokenKey, v = secrets.Encrypt(t) }, tx);
+                """, new { key, v = secrets.Encrypt(v) }, tx);
             return 0;
         }, ct);
     }
@@ -73,107 +99,142 @@ public sealed class AlertService(Db db, SecretBox secrets, ITelegramSender teleg
     /// <summary>Sends a test message on one channel to every recipient; returns the errors (empty = all sent).</summary>
     public async Task<IReadOnlyList<string>> TestAsync(string channel, CancellationToken ct = default)
     {
-        var (s, token) = await LoadConfigAsync(ct);
+        var (s, keys) = await LoadConfigAsync(ct);
         var lang = s.String("alerts.language", "ar");
         var text = AlertText.Format("TEST", "INFO", "{}", DateTime.UtcNow, lang, Zone(s));
         var errors = new List<string>();
-        if (channel == "SMS")
+        switch (channel)
         {
-            var port = s.String("alerts.sms_port", "");
-            var to = s.Strings("alerts.sms_recipients");
-            if (port.Length == 0 || to.Count == 0) errors.Add("SMS: port or recipients not set");
-            foreach (var n in to)
-                try { await sms.SendAsync(port, n, text, ct); }
-                catch (AlertChannelException e) { errors.Add($"{n}: {e.Message}"); }
+            case "SMS":
+                var sc = SmsConfigFrom(s, keys);
+                var to = s.Strings("alerts.sms_recipients");
+                if (!sc.IsComplete || to.Count == 0) errors.Add("SMS: transport or recipients not set");
+                else
+                    foreach (var n in to)
+                        if (await TryAsync(() => sms.SendAsync(sc, n, text, ct)) is { } e) errors.Add($"{n}: {e}");
+                break;
+            case "TELEGRAM":
+                var chats = s.Strings("alerts.telegram_chat_ids");
+                if (keys.GetValueOrDefault(TelegramTokenKey) is not { } token || chats.Count == 0)
+                    errors.Add("Telegram: token or chat ids not set");
+                else
+                    foreach (var c in chats)
+                        if (await TryAsync(() => telegram.SendTextAsync(token, c, text, ct)) is { } e) errors.Add($"{c}: {e}");
+                break;
+            case "WHATSAPP":
+                var wa = WhatsAppConfigFrom(s, keys);
+                var recipients = s.Strings("alerts.whatsapp_recipients");
+                if (wa is null || recipients.Count == 0) errors.Add("WhatsApp: token, phone number id or recipients not set");
+                else
+                    foreach (var r in recipients)
+                        if (await TryAsync(() => whatsapp.SendTemplateAsync(wa, r, text, null, ct)) is { } e) errors.Add($"{r}: {e}");
+                break;
+            default:
+                throw TruckGateException.Validation("CHANNEL_INVALID", "Channel must be SMS, TELEGRAM or WHATSAPP.");
         }
-        else if (channel == "TELEGRAM")
-        {
-            var chats = s.Strings("alerts.telegram_chat_ids");
-            if (token is null || chats.Count == 0) errors.Add("Telegram: token or chat ids not set");
-            else
-                foreach (var c in chats)
-                    try { await telegram.SendTextAsync(token, c, text, ct); }
-                    catch (Exception e) when (e is AlertChannelException or HttpRequestException or TaskCanceledException)
-                    { errors.Add($"{c}: {e.Message}"); }
-        }
-        else throw TruckGateException.Validation("CHANNEL_INVALID", "Channel must be SMS or TELEGRAM.");
         return errors;
     }
 
     /// <summary>Delivers pending alerts of the last 24 hours. Called every few seconds by the server.</summary>
     public async Task<DispatchReport> DispatchOnceAsync(CancellationToken ct = default)
     {
-        var (s, token) = await LoadConfigAsync(ct);
-        bool smsOn = s.Bool("alerts.sms_enabled", false) && s.String("alerts.sms_port", "").Length > 0
-                     && s.Strings("alerts.sms_recipients").Count > 0;
-        bool tgOn = s.Bool("alerts.telegram_enabled", false) && token is not null && s.Strings("alerts.telegram_chat_ids").Count > 0;
-        if (!smsOn && !tgOn) return new DispatchReport(0, 0, 0);
+        var (s, keys) = await LoadConfigAsync(ct);
+        var smsConfig = SmsConfigFrom(s, keys);
+        var waConfig = WhatsAppConfigFrom(s, keys);
+        var tgToken = keys.GetValueOrDefault(TelegramTokenKey);
+        bool smsOn = s.Bool("alerts.sms_enabled", false) && smsConfig.IsComplete && s.Strings("alerts.sms_recipients").Count > 0;
+        bool tgOn = s.Bool("alerts.telegram_enabled", false) && tgToken is not null && s.Strings("alerts.telegram_chat_ids").Count > 0;
+        bool waOn = s.Bool("alerts.whatsapp_enabled", false) && waConfig is not null && s.Strings("alerts.whatsapp_recipients").Count > 0;
+        if (!smsOn && !tgOn && !waOn) return new DispatchReport(0, 0, 0);
 
         var lang = s.String("alerts.language", "ar");
         var zone = Zone(s);
         int smsRank = AlertText.Rank(s.String("alerts.sms_min_severity", "CRITICAL"));
         int tgRank = AlertText.Rank(s.String("alerts.telegram_min_severity", "MEDIUM"));
+        int waRank = AlertText.Rank(s.String("alerts.whatsapp_min_severity", "MEDIUM"));
 
         var pending = await db.ReadAsync(async conn => (await conn.QueryAsync<PendingRow>("""
             SELECT a.id, a.type, a.severity, a.entity, a.entity_id, a.params::text AS params, a.created_at,
                    a.sms_sent_at IS NULL AS sms_pending, a.telegram_sent_at IS NULL AS telegram_pending,
+                   a.whatsapp_sent_at IS NULL AS whatsapp_pending,
                    (SELECT count(*)::int FROM tg.alert_deliveries d WHERE d.alert_id = a.id AND d.channel = 'SMS' AND NOT d.ok) AS sms_failures,
-                   (SELECT count(*)::int FROM tg.alert_deliveries d WHERE d.alert_id = a.id AND d.channel = 'TELEGRAM' AND NOT d.ok) AS telegram_failures
+                   (SELECT count(*)::int FROM tg.alert_deliveries d WHERE d.alert_id = a.id AND d.channel = 'TELEGRAM' AND NOT d.ok) AS telegram_failures,
+                   (SELECT count(*)::int FROM tg.alert_deliveries d WHERE d.alert_id = a.id AND d.channel = 'WHATSAPP' AND NOT d.ok) AS whatsapp_failures
             FROM tg.alerts a
-            WHERE a.created_at > now() - interval '24 hours' AND (a.sms_sent_at IS NULL OR a.telegram_sent_at IS NULL)
+            WHERE a.created_at > now() - interval '24 hours'
+              AND (a.sms_sent_at IS NULL OR a.telegram_sent_at IS NULL OR a.whatsapp_sent_at IS NULL)
             ORDER BY a.id LIMIT 50
             """)).ToList(), ct);
 
         int sent = 0, failed = 0, skipped = 0;
         int smsBudget = smsOn ? await SmsBudgetAsync(s.Int("alerts.sms_max_per_hour", 10), ct) : 0;
+
+        async Task DeliverAsync(PendingRow a, string channel, string column, IReadOnlyList<string> recipients, Func<string, Task> send)
+        {
+            var allOk = true;
+            var done = await DeliveredToAsync(a.Id, channel, ct);
+            foreach (var to in recipients.Where(r => !done.Contains(r)))
+            {
+                var error = await TryAsync(() => send(to));
+                await LogAsync(a.Id, channel, to, error, ct);
+                if (error is null) sent++; else { failed++; allOk = false; }
+            }
+            if (allOk) await MarkAsync(a.Id, column, ct);
+        }
+
         foreach (var a in pending)
         {
             var text = AlertText.Format(a.Type, a.Severity, a.Params, a.CreatedAt, lang, zone);
-            if (smsOn && a.SmsPending && AlertText.Rank(a.Severity) >= smsRank && a.SmsFailures < MaxAttempts)
+            int rank = AlertText.Rank(a.Severity);
+            if (smsOn && a.SmsPending && rank >= smsRank && a.SmsFailures < MaxAttempts)
             {
-                if (smsBudget <= 0) skipped++;
+                var recipients = s.Strings("alerts.sms_recipients");
+                if (smsBudget < recipients.Count) skipped++;
                 else
                 {
-                    var allOk = true;
-                    var done = await DeliveredToAsync(a.Id, "SMS", ct);
-                    foreach (var number in s.Strings("alerts.sms_recipients").Where(n => !done.Contains(n)))
-                    {
-                        smsBudget--;
-                        var error = await TryAsync(() => sms.SendAsync(s.String("alerts.sms_port", ""), number, text, ct));
-                        await LogAsync(a.Id, "SMS", number, error, ct);
-                        if (error is null) sent++; else { failed++; allOk = false; }
-                    }
-                    if (allOk) await MarkAsync(a.Id, "sms_sent_at", ct);
+                    smsBudget -= recipients.Count;
+                    await DeliverAsync(a, "SMS", "sms_sent_at", recipients, to => sms.SendAsync(smsConfig, to, text, ct));
                 }
             }
-            if (tgOn && a.TelegramPending && AlertText.Rank(a.Severity) >= tgRank && a.TelegramFailures < MaxAttempts)
+            if (tgOn && a.TelegramPending && rank >= tgRank && a.TelegramFailures < MaxAttempts)
             {
                 var photo = s.Bool("alerts.telegram_photos", true) ? await PhotoForAsync(a, ct) : null;
-                var allOk = true;
-                var done = await DeliveredToAsync(a.Id, "TELEGRAM", ct);
-                foreach (var chat in s.Strings("alerts.telegram_chat_ids").Where(c => !done.Contains(c)))
-                {
-                    var error = await TryAsync(() => photo is null
-                        ? telegram.SendTextAsync(token!, chat, text, ct)
-                        : telegram.SendPhotoAsync(token!, chat, photo, text, ct));
-                    await LogAsync(a.Id, "TELEGRAM", chat, error, ct);
-                    if (error is null) sent++; else { failed++; allOk = false; }
-                }
-                if (allOk) await MarkAsync(a.Id, "telegram_sent_at", ct);
+                await DeliverAsync(a, "TELEGRAM", "telegram_sent_at", s.Strings("alerts.telegram_chat_ids"), chat => photo is null
+                    ? telegram.SendTextAsync(tgToken!, chat, text, ct)
+                    : telegram.SendPhotoAsync(tgToken!, chat, photo, text, ct));
+            }
+            if (waOn && a.WhatsappPending && rank >= waRank && a.WhatsappFailures < MaxAttempts)
+            {
+                var photo = s.Bool("alerts.whatsapp_photos", false) ? await PhotoForAsync(a, ct) : null;
+                await DeliverAsync(a, "WHATSAPP", "whatsapp_sent_at", s.Strings("alerts.whatsapp_recipients"),
+                    to => whatsapp.SendTemplateAsync(waConfig!, to, text, photo, ct));
             }
         }
         return new DispatchReport(sent, failed, skipped);
     }
 
+    private static SmsConfig SmsConfigFrom(SettingsBag s, IReadOnlyDictionary<string, string> keys) =>
+        new(s.String("alerts.sms_transport", SmsConfig.Modem), s.String("alerts.sms_port", ""),
+            s.String("alerts.sms_router_url", ""), s.String("alerts.sms_router_user", ""), keys.GetValueOrDefault(RouterPasswordKey));
+
+    private static WhatsAppConfig? WhatsAppConfigFrom(SettingsBag s, IReadOnlyDictionary<string, string> keys)
+    {
+        var phoneId = s.String("alerts.whatsapp_phone_number_id", "");
+        return keys.GetValueOrDefault(WhatsAppTokenKey) is { } token && phoneId.Length > 0
+            ? new WhatsAppConfig(token, s.String("alerts.whatsapp_api_version", "v26.0"), phoneId,
+                s.String("alerts.whatsapp_template", "truckgate_alert"), s.String("alerts.whatsapp_template_language", "ar"))
+            : null;
+    }
+
     // ------------------------------------------------------------------ helpers
 
-    private async Task<(SettingsBag Settings, string? Token)> LoadConfigAsync(CancellationToken ct) =>
+    private async Task<(SettingsBag Settings, IReadOnlyDictionary<string, string> Secrets)> LoadConfigAsync(CancellationToken ct) =>
         await db.ReadAsync(async conn =>
         {
             var s = await SettingsBag.LoadAsync(conn);
-            var enc = await conn.ExecuteScalarAsync<byte[]?>("SELECT value_enc FROM tg.channel_secrets WHERE key = @k",
-                new { k = TelegramTokenKey });
-            return (s, enc is null ? null : secrets.Decrypt(enc));
+            var rows = await conn.QueryAsync<(string Key, byte[] Value)>("SELECT key, value_enc FROM tg.channel_secrets");
+            IReadOnlyDictionary<string, string> keys = rows.ToDictionary(r => r.Key, r => secrets.Decrypt(r.Value), StringComparer.Ordinal);
+            return (s, keys);
         }, ct);
 
     private static TimeZoneInfo Zone(SettingsBag s)
@@ -251,7 +312,9 @@ public sealed class AlertService(Db db, SecretBox secrets, ITelegramSender teleg
         public DateTime CreatedAt { get; set; }
         public bool SmsPending { get; set; }
         public bool TelegramPending { get; set; }
+        public bool WhatsappPending { get; set; }
         public int SmsFailures { get; set; }
         public int TelegramFailures { get; set; }
+        public int WhatsappFailures { get; set; }
     }
 }

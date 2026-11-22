@@ -123,12 +123,16 @@ export interface TripDetail {
 }
 export interface AlertItem {
   id: number; type: string; severity: 'CRITICAL' | 'MEDIUM' | 'INFO'; entity: string | null; entityId: string | null; params: string
-  createdAt: string; smsSentAt: string | null; telegramSentAt: string | null; ackByName: string | null; ackAt: string | null
+  createdAt: string; smsSentAt: string | null; telegramSentAt: string | null; whatsappSentAt: string | null
+  ackByName: string | null; ackAt: string | null
   failedDeliveries: number
 }
 export interface ChannelStatus {
-  smsEnabled: boolean; smsPort: string; smsRecipients: string[]; smsMinSeverity: string; telegramEnabled: boolean
-  telegramTokenSet: boolean; telegramChatIds: string[]; telegramMinSeverity: string; language: string
+  smsEnabled: boolean; smsTransport: string; smsPort: string; smsRouterUrl: string; smsRouterPasswordSet: boolean
+  smsRecipients: string[]; smsMinSeverity: string; telegramEnabled: boolean
+  telegramTokenSet: boolean; telegramChatIds: string[]; telegramMinSeverity: string
+  whatsappEnabled: boolean; whatsappTokenSet: boolean; whatsappPhoneNumberId: string; whatsappRecipients: string[]
+  whatsappTemplate: string; whatsappMinSeverity: string; language: string
 }
 export interface SettingItem { key: string; value: string; type: string; min: string | null; max: string | null }
 export interface CountItem { key: string; label: string | null; count: number }

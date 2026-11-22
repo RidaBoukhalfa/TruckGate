@@ -33,11 +33,22 @@ public class AlertTests(DatabaseFixture fx)
 
     private sealed class FakeSms : ISmsSender
     {
-        public List<(string Number, string Text)> Sent { get; } = [];
+        public List<(string Number, string Text, SmsConfig Config)> Sent { get; } = [];
 
-        public Task SendAsync(string port, string number, string text, CancellationToken ct)
+        public Task SendAsync(SmsConfig config, string number, string text, CancellationToken ct)
         {
-            Sent.Add((number, text));
+            Sent.Add((number, text, config));
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeWhatsApp : IWhatsAppSender
+    {
+        public List<(string To, string Text, WhatsAppConfig Config)> Sent { get; } = [];
+
+        public Task SendTemplateAsync(WhatsAppConfig config, string to, string text, byte[]? jpeg, CancellationToken ct)
+        {
+            Sent.Add((to, text, config));
             return Task.CompletedTask;
         }
     }
@@ -51,7 +62,8 @@ public class AlertTests(DatabaseFixture fx)
         var (_, db) = await fx.CreateIsolatedDatabaseAsync();
         var tg = new FakeTelegram();
         var sms = new FakeSms();
-        var alerts = new AlertService(db, SecretBox.Ephemeral(), tg, sms, new StorageOptions(Path.GetTempPath()));
+        var wa = new FakeWhatsApp();
+        var alerts = new AlertService(db, SecretBox.Ephemeral(), tg, sms, wa, new StorageOptions(Path.GetTempPath()));
         var settings = new SettingsService(db);
         await Set(settings, "alerts.sms_enabled", true);
         await Set(settings, "alerts.sms_port", "COM3");
@@ -59,6 +71,11 @@ public class AlertTests(DatabaseFixture fx)
         await Set(settings, "alerts.telegram_enabled", true);
         await Set(settings, "alerts.telegram_chat_ids", new[] { "-100123", "456" });
         await alerts.SetTelegramTokenAsync("123456:ABCdefGHIjklMNOpqrSTUvwxYZ", T);
+        await Set(settings, "alerts.whatsapp_enabled", true);
+        await Set(settings, "alerts.whatsapp_phone_number_id", "106540352242922");
+        await Set(settings, "alerts.whatsapp_recipients", new[] { "+213 550 000 002" });
+        await Set(settings, "alerts.whatsapp_min_severity", "CRITICAL");
+        await alerts.SetSecretAsync(AlertService.WhatsAppTokenKey, "EAAG-secret-whatsapp-token-0123456789", T);
 
         await db.InTransactionAsync(T, async (c, tx) =>
         {
@@ -70,17 +87,22 @@ public class AlertTests(DatabaseFixture fx)
         var first = await alerts.DispatchOnceAsync();
         var second = await alerts.DispatchOnceAsync();
 
-        Assert.Equal(5, first.Sent); // critical: 1 SMS + 2 Telegram; medium: 2 Telegram
+        Assert.Equal(6, first.Sent); // critical: 1 SMS + 2 Telegram + 1 WhatsApp; medium: 2 Telegram
         Assert.Equal(0, second.Sent);
         var text = Assert.Single(sms.Sent).Text;
         Assert.Contains("وصل مزور", text);
         Assert.Contains("Q1-000482", text);
         Assert.Equal(4, tg.Sent.Count);
+        var w = Assert.Single(wa.Sent);
+        Assert.Equal("truckgate_alert", w.Config.Template);
+        Assert.Equal("v26.0", w.Config.ApiVersion);
+        Assert.Equal("EAAG-secret-whatsapp-token-0123456789", w.Config.Token);
+        Assert.Equal("COM3", sms.Sent[0].Config.Port);
         // the token is stored encrypted and never in the audit log
         var stored = await db.ReadAsync(c => c.ExecuteScalarAsync<byte[]>("SELECT value_enc FROM tg.channel_secrets"));
         Assert.DoesNotContain("ABCdef", Encoding.UTF8.GetString(stored!));
         Assert.Equal(0L, await db.ReadAsync(c => c.ExecuteScalarAsync<long>(
-            "SELECT count(*) FROM tg.audit_log WHERE payload::text LIKE '%value_enc%' OR payload::text LIKE '%ABCdef%'")));
+            "SELECT count(*) FROM tg.audit_log WHERE payload::text LIKE '%value_enc%' OR payload::text LIKE '%ABCdef%' OR payload::text LIKE '%EAAG%'")));
 
         var list = await alerts.ListAsync(openOnly: true, limit: 10);
         Assert.Equal("CRITICAL", list[0].Severity);
@@ -93,7 +115,7 @@ public class AlertTests(DatabaseFixture fx)
     {
         var (_, db) = await fx.CreateIsolatedDatabaseAsync();
         var tg = new FakeTelegram { Fail = true };
-        var alerts = new AlertService(db, SecretBox.Ephemeral(), tg, new FakeSms(), new StorageOptions(Path.GetTempPath()));
+        var alerts = new AlertService(db, SecretBox.Ephemeral(), tg, new FakeSms(), new FakeWhatsApp(), new StorageOptions(Path.GetTempPath()));
         var settings = new SettingsService(db);
         await Set(settings, "alerts.telegram_enabled", true);
         await Set(settings, "alerts.telegram_chat_ids", new[] { "456" });
@@ -122,6 +144,8 @@ public class AlertTests(DatabaseFixture fx)
                  {
                      ("unknown.key", 1), ("trip.price_per_trip", -1), ("gate.min_travel_s", "600"), ("alerts.language", "en"),
                      ("alerts.sms_recipients", new[] { "call me" }), ("site.timezone", "Mars/Olympus"), ("alerts.sms_enabled", 1),
+                     ("alerts.sms_router_url", "ftp://router"), ("alerts.whatsapp_template", "Truck Gate"),
+                     ("alerts.whatsapp_api_version", "latest"), ("alerts.sms_transport", "PIGEON"),
                  })
             await Assert.ThrowsAsync<TruckGateException>(() => Set(s, key, value));
 

@@ -46,6 +46,7 @@ export default function AlertsPage() {
                 <td className="small">
                   {a.smsSentAt && <span title={fmtTime(a.smsSentAt, lang)}>SMS ✓ </span>}
                   {a.telegramSentAt && <span title={fmtTime(a.telegramSentAt, lang)}>Telegram ✓ </span>}
+                  {a.whatsappSentAt && <span title={fmtTime(a.whatsappSentAt, lang)}>WhatsApp ✓ </span>}
                   {a.failedDeliveries > 0 && <span className="warn">{t('failedN', { n: a.failedDeliveries })}</span>}
                 </td>
                 <td>{a.ackAt
