@@ -9,8 +9,12 @@ mkdir -p "$OUT"
 R="$OUT/emulator-api$API.txt"
 log() { echo "$*" | tee -a "$R"; }
 fail=0
-check_ui() { # file text label
-  if grep -q "$2" "$1"; then log "PASS  $3"; else log "FAIL  $3 (text '$2' not on screen)"; fail=1; fi
+check_ui() { # file text label — the accessibility dump can come back before Compose has filled it
+  for attempt in 1 2 3; do
+    if grep -q "$2" "$1"; then log "PASS  $3"; return; fi
+    sleep 4; dump_ui "$1"
+  done
+  log "FAIL  $3 (text '$2' not on screen)"; fail=1
 }
 dump_ui() {
   timeout 60 adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true
