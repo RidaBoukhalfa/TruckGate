@@ -309,9 +309,11 @@ public sealed class GateService(Db db)
                 SELECT t.id, t.active,
                        (SELECT extract(epoch FROM max(gs.scanned_at))::bigint
                         FROM tg.trips tr JOIN tg.gate_scans gs ON gs.id = tr.entry_scan_id
-                        WHERE tr.truck_id = t.id AND tr.current_state <> 'REJECTED') AS last_entry_at
+                        WHERE tr.truck_id = t.id AND tr.current_state <> 'REJECTED'
+                          -- only entries made with other tickets: a replay is ALREADY_USED, not a truck gap
+                          AND NOT (tr.ticket_device_id = @d AND tr.ticket_seq = @s)) AS last_entry_at
                 FROM tg.trucks t WHERE t.id = @id
-                """, new { id = (int)f.TruckId }, tx);
+                """, new { id = (int)f.TruckId, d = (int)f.DeviceId, s = (long)f.Seq }, tx);
             if (truck is not null)
                 l._truck = new TruckState((ushort)truck.Id, truck.Active, truck.LastEntryAt);
 

@@ -81,7 +81,7 @@ Inputs: QR text, server time `now`, device registry, truck registry, used IDs, v
 |---|---:|---|
 | `min_travel_s` | 600 | Ticket younger than this → `TOO_EARLY` |
 | `max_validity_s` | 5400 | Ticket older than this → `EXPIRED` |
-| `min_truck_gap_s` | 1200 | Same truck entered less than this ago → `TRUCK_GAP` |
+| `min_truck_gap_s` | 1200 | Same truck entered less than this ago **with another ticket** → `TRUCK_GAP` (a replay of the same ticket is `ALREADY_USED` only) |
 | `future_tolerance_s` | 120 | `issued_at` beyond `now` + this → `ISSUED_IN_FUTURE` |
 
 **Stage A — stop at the first failure (outcome REJECT):**
