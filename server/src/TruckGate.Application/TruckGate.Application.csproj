@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>TruckGate.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../TruckGate.Crypto/TruckGate.Crypto.csproj" />
+    <ProjectReference Include="../TruckGate.Data/TruckGate.Data.csproj" />
+  </ItemGroup>
+</Project>

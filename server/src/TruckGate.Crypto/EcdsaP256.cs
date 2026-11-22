@@ -29,6 +29,21 @@ public static class EcdsaP256
         }
     }
 
+    /// <summary>True if the bytes are a SubjectPublicKeyInfo for a P-256 key (used at device enrollment).</summary>
+    public static bool IsValidP256PublicKey(byte[] publicKeySpki)
+    {
+        try
+        {
+            using var ecdsa = ECDsa.Create();
+            ecdsa.ImportSubjectPublicKeyInfo(publicKeySpki, out int read);
+            return read == publicKeySpki.Length && IsP256(ecdsa);
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+    }
+
     private static bool IsP256(ECDsa ecdsa)
     {
         var curve = ecdsa.ExportParameters(false).Curve;

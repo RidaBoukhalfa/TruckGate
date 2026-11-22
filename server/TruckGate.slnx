@@ -1,8 +1,12 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/TruckGate.Crypto/TruckGate.Crypto.csproj" />
+    <Project Path="src/TruckGate.Data/TruckGate.Data.csproj" />
+    <Project Path="src/TruckGate.Application/TruckGate.Application.csproj" />
+    <Project Path="src/TruckGate.Api/TruckGate.Api.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/TruckGate.Crypto.Tests/TruckGate.Crypto.Tests.csproj" />
+    <Project Path="tests/TruckGate.Server.Tests/TruckGate.Server.Tests.csproj" />
   </Folder>
 </Solution>
