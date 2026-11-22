@@ -28,7 +28,7 @@ import java.util.Base64
 class SyncEngine(context: Context) {
     private val store = Store.get(context)
 
-    data class Result(val config: DeviceConfig?, val sent: Int, val rejected: Int, val photos: Int)
+    data class Result(val config: DeviceConfig?, val sent: Int, val rejected: Int, val photos: Int, val photosRefused: Int = 0)
 
     fun run(includePhotos: Boolean): Result {
         val id = store.get(K_DEVICE_ID)?.toIntOrNull() ?: error("not enrolled")
@@ -77,6 +77,7 @@ class SyncEngine(context: Context) {
             store.put(K_LAST_SYNC_ERROR, "")
 
             var photos = 0
+            var photosRefused = 0
             if (includePhotos) {
                 for ((seq, path) in store.photosToUpload(PHOTO_BATCH)) {
                     val file = File(path)
@@ -87,12 +88,16 @@ class SyncEngine(context: Context) {
                         photos++
                     } catch (e: ServerException) {
                         // a refused photo is recorded on the server (alert); do not retry it for ever
-                        if (e.code == "PHOTO_MISMATCH" || e.code == "PHOTO_INVALID") store.markPhotoDone(seq)
-                        else throw e
+                        // (BODY_TOO_LARGE: a photo taken by version 1.0.1 at full camera size; the server
+                        // refuses it and it cannot be shrunk because its hash is inside the signed ticket)
+                        if (e.code == "PHOTO_MISMATCH" || e.code == "PHOTO_INVALID" || e.code == "BODY_TOO_LARGE") {
+                            store.markPhotoDone(seq)
+                            photosRefused++
+                        } else throw e
                     }
                 }
             }
-            return Result(config, sent, rejected, photos)
+            return Result(config, sent, rejected, photos, photosRefused)
         } catch (e: ServerException) {
             if (e.code == "DEVICE_NOT_ALLOWED") store.put(K_REVOKED, "1")
             store.put(K_LAST_SYNC_ERROR, e.code)

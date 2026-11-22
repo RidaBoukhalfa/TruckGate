@@ -101,4 +101,19 @@
     <string name="address_wrong_server">Ce code ne vient pas du serveur de cette usine : refusé.</string>
     <string name="address_not_a_code">Ce n\'est pas un code d\'adresse du serveur. Affichez-le depuis l\'administration : Téléphones → Adresse du serveur.</string>
     <string name="address_old_code">Ce code est plus ancien que l\'adresse actuelle : refusé. Affichez un nouveau code.</string>
+
+    <!-- enrollment and server answers -->
+    <string name="enroll_scanned_address_code">C\'est le « code d\'adresse du serveur », pas un code d\'enregistrement.\nSur le PC : Téléphones → nom du téléphone → « Nouveau code », puis scannez le code affiché.</string>
+    <string name="enroll_code_damaged">Code d\'enregistrement incomplet ou abîmé. Affichez un nouveau code et scannez-le.</string>
+    <string name="enroll_not_a_code">Ce n\'est pas un code d\'enregistrement TruckGate (lu : %1$s…).\nSur le PC : Téléphones → « Nouveau code ».</string>
+    <string name="srv_enroll_unknown">Code d\'enregistrement inconnu de ce serveur. Affichez un nouveau code.</string>
+    <string name="srv_enroll_used">Ce code a déjà servi. Un code par téléphone : affichez-en un nouveau.</string>
+    <string name="srv_enroll_expired">Code d\'enregistrement expiré (15 min). Affichez un nouveau code.</string>
+    <string name="srv_key_enrolled">Ce téléphone est déjà enregistré avec ces clés.</string>
+    <string name="srv_device_not_allowed">Téléphone révoqué ou non autorisé. Voyez l\'administrateur.</string>
+    <string name="srv_request_time">Requête refusée : écart d\'heure. Activez la date et l\'heure automatiques puis réessayez.</string>
+    <string name="srv_signature_invalid">Le serveur refuse la signature du téléphone. Si cela se répète, réenregistrez le téléphone.</string>
+    <string name="srv_too_large">Le fichier envoyé dépasse la taille acceptée par le serveur.</string>
+    <string name="sync_photos_refused">%1$d photo(s) trop grande(s) refusée(s) par le serveur (prise(s) par une version précédente). Le bon lui-même est arrivé.</string>
+    <string name="ticket_qr_screen">Imprimante en panne : ce code peut être scanné sur l\'écran au portail</string>
 </resources>

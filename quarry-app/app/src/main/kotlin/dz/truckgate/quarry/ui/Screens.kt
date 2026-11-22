@@ -3,6 +3,8 @@
 package dz.truckgate.quarry.ui
 
 import androidx.activity.compose.BackHandler
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +47,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.asImageBitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -368,6 +376,18 @@ private fun TicketRow(vm: QuarryViewModel, t: StoredTicket) {
 }
 
 @Composable
+private fun TicketQr(text: String) {
+    val image = remember(text) {
+        val m = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0,
+            mapOf(EncodeHintType.MARGIN to 2, EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M))
+        val pixels = IntArray(m.width * m.height) { i -> if (m.get(i % m.width, i / m.width)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt() }
+        Bitmap.createBitmap(pixels, m.width, m.height, Bitmap.Config.ARGB_8888).asImageBitmap()
+    }
+    Image(image, contentDescription = null, filterQuality = FilterQuality.None,
+        modifier = Modifier.size(180.dp).background(Color.White))
+}
+
+@Composable
 private fun TicketDetailScreen(vm: QuarryViewModel, activity: FragmentActivity) {
     val t = vm.selected ?: return
     var reason by remember { mutableStateOf("") }
@@ -379,6 +399,10 @@ private fun TicketDetailScreen(vm: QuarryViewModel, activity: FragmentActivity) 
         if (t.voidedAt != null) {
             Text(stringResource(R.string.voided) + ": " + t.voidReason.orEmpty(), color = Color(0xFFC62828), fontSize = 20.sp)
         } else {
+            // Same code as on the paper: the gate scanner can read it from this screen if the
+            // printer is broken. A ticket is still accepted only once at the gate.
+            TicketQr(t.qrText)
+            Text(stringResource(R.string.ticket_qr_screen), fontSize = 14.sp)
             BigButton(stringResource(if (t.printCount == 0) R.string.retry else R.string.reprint), { vm.printStored(t.seq) })
             HorizontalDivider()
             OutlinedTextField(value = reason, onValueChange = { reason = it.take(120) },

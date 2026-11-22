@@ -131,7 +131,15 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------------ enrollment and configuration
 
     fun enroll(qrText: String) {
-        val invite = runCatching { EnrollmentInvite.parse(qrText) }.getOrElse { message = str(R.string.error, it.message ?: ""); return }
+        val invite = runCatching { EnrollmentInvite.parse(qrText) }.getOrElse {
+            val text = qrText.trim()
+            message = when {
+                text.startsWith("TGA1|") -> str(R.string.enroll_scanned_address_code)
+                text.startsWith("TGE1|") -> str(R.string.enroll_code_damaged)
+                else -> str(R.string.enroll_not_a_code, text.take(24))
+            }
+            return
+        }
         busy = true
         viewModelScope.launch {
             try {
@@ -167,7 +175,8 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
                 val r = withContext(Dispatchers.IO) { SyncEngine(getApplication<Application>()).run(includePhotos = true) }
                 config = r.config
                 message = str(R.string.sync_done, r.sent, r.photos, r.config?.version ?: 0) +
-                    if (r.rejected > 0) "\n" + str(R.string.sync_rejected, r.rejected) else ""
+                    (if (r.rejected > 0) "\n" + str(R.string.sync_rejected, r.rejected) else "") +
+                    (if (r.photosRefused > 0) "\n" + str(R.string.sync_photos_refused, r.photosRefused) else "")
             } catch (e: Exception) {
                 message = NetErrors.describe(getApplication<Application>(), serverUrl.orEmpty(), e)
             } finally {

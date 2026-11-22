@@ -73,18 +73,6 @@ export default function PhonesPage() {
         )}
       </Section>
 
-      <Section title={t('serverAddress')}>
-        <p className="muted">{t('serverAddressHelp')}</p>
-        {!address && <button disabled={act.busy} onClick={showAddress}>{t('serverAddressShow')}</button>}
-        {address && (
-          <div className="invite">
-            <img src={address.img} alt="server address QR" />
-            <p dir="ltr"><code>{address.url}</code></p>
-            <button onClick={() => setAddress(null)}>{t('close')}</button>
-          </div>
-        )}
-      </Section>
-
       <Section title={t('phones')}>
         <table>
           <thead><tr><th>#</th><th>{t('label')}</th><th>{t('enrolled')}</th><th>{t('lastSync')}</th><th>{t('revoked')}</th><th /></tr></thead>
@@ -106,6 +94,18 @@ export default function PhonesPage() {
             ))}
           </tbody>
         </table>
+      </Section>
+
+      <Section title={t('serverAddress')}>
+        <p className="muted">{t('serverAddressHelp')}</p>
+        {!address && <button disabled={act.busy} onClick={showAddress}>{t('serverAddressShow')}</button>}
+        {address && (
+          <div className="invite">
+            <img src={address.img} alt="server address QR" />
+            <p dir="ltr"><code>{address.url}</code></p>
+            <button onClick={() => setAddress(null)}>{t('close')}</button>
+          </div>
+        )}
       </Section>
 
       <Section title={t('sites')}>

@@ -23,7 +23,7 @@ const ar = {
   manualCamera: 'إضافة كاميرا بعنوان الصورة مباشرة', snapshotUrl: 'عنوان الصورة (snapshot)', test: 'تجربة',
   lastOk: 'آخر نجاح', lastError: 'آخر خطأ', active: 'نشط', version: 'نسخة', noSnapshot: 'هذه القناة لا تعطي صورة',
   gates: 'البوابات', newGate: 'بوابة جديدة', code: 'الرمز', name: 'الاسم', create: 'إنشاء',
-  serverAddress: 'عنوان الخادم للهواتف', serverAddressShow: 'عرض رمز عنوان الخادم',
+  serverAddress: 'عنوان الخادم — للهواتف المسجّلة سابقًا فقط (ليس للتسجيل)', serverAddressShow: 'عرض رمز عنوان الخادم',
   serverAddressHelp: 'إذا تغيّر عنوان حاسوب الخادم، امسح هذا الرمز من إعدادات كل هاتف («تغيير عنوان الخادم»). الرمز موقّع بمفتاح هذا الخادم، فلا يقبل الهاتف رمزًا من حاسوب آخر.',
   phones: 'هواتف المقلع', newCode: 'رمز تسجيل جديد', codeFor: 'اسم الهاتف', expires: 'ينتهي', scanWithPhone:
     'امسح هذا الرمز من تطبيق المقلع (على شبكة المصنع). يعمل مرة واحدة.', revoke: 'إلغاء الهاتف',
@@ -103,7 +103,7 @@ const fr: Record<Key, string> = {
   lastOk: 'Dernier succès', lastError: 'Dernière erreur', active: 'Actif', version: 'Version', noSnapshot: 'Ce canal ne fournit pas de photo',
   gates: 'Portails', newGate: 'Nouveau portail', code: 'Code', name: 'Nom', create: 'Créer',
   phones: 'Téléphones carrière', newCode: "Nouveau code d'enregistrement", codeFor: 'Nom du téléphone', expires: 'Expire',
-  serverAddress: 'Adresse du serveur pour les téléphones', serverAddressShow: "Afficher le code d'adresse du serveur",
+  serverAddress: "Adresse du serveur — téléphones déjà enregistrés seulement (pas pour l'enregistrement)", serverAddressShow: "Afficher le code d'adresse du serveur",
   serverAddressHelp: "Si l'adresse du PC serveur a changé, scannez ce code dans les réglages de chaque téléphone (« Changer l'adresse du serveur »). Le code est signé par la clé de ce serveur : un téléphone refuse un code venant d'un autre PC.",
   scanWithPhone: "Scannez ce code depuis l'application carrière (Wi-Fi de l'usine). Utilisable une seule fois.",
   revoke: 'Révoquer', revokeReason: 'Motif', revoked: 'Révoqué', enrolled: 'Enregistré',
