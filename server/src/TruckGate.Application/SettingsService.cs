@@ -121,7 +121,10 @@ public sealed class SettingsService(Db db)
             case "phones":
             case "chats":
                 if (v.ValueKind != JsonValueKind.Array || v.GetArrayLength() > r.Max) throw Bad();
-                var items = v.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString()!.Trim() : null).ToList();
+                // phone numbers may be typed with spaces or dashes: "+213 550 00 00 01"
+                var items = v.EnumerateArray().Select(x => x.ValueKind != JsonValueKind.String ? null
+                    : r.Type == "phones" ? new string(x.GetString()!.Where(c => c == '+' || char.IsAsciiDigit(c) || char.IsLetter(c)).ToArray())
+                    : x.GetString()!.Trim()).ToList();
                 if (items.Any(x => x is null || x.Length is 0 or > 32)) throw Bad();
                 if (r.Type == "phones" && items.Any(x => !x!.TrimStart('+').All(char.IsAsciiDigit) || x.Length < 6)) throw Bad();
                 if (r.Type == "chats" && items.Any(x => !x!.TrimStart('-').All(char.IsAsciiDigit) && !x.StartsWith('@'))) throw Bad();

@@ -63,7 +63,7 @@ function fromInput(s: SettingItem, text: string): unknown {
   switch (s.type) {
     case 'int': case 'decimal': return Number(text)
     case 'bool': return text === 'true'
-    case 'phones': case 'chats': return text.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean)
+    case 'phones': case 'chats': return text.split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean)
     default: return text
   }
 }
