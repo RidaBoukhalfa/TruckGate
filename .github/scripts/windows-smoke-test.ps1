@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3
 [System.Net.WebRequest]::DefaultWebProxy = $null
 New-Item -ItemType Directory -Path $Out -Force | Out-Null
+$Out = (Resolve-Path $Out).Path
+$Installer = (Resolve-Path $Installer).Path
 $report = Join-Path $Out 'windows-smoke-test.txt'
 $app = Join-Path $env:ProgramFiles 'TruckGate'
 $root = Join-Path $env:ProgramData 'TruckGate'
@@ -24,7 +26,7 @@ function Check([string]$name, [scriptblock]$test) {
         Note "FAIL  $name : $($_.Exception.Message)"
     }
 }
-function Assert([bool]$cond, [string]$msg) { if (-not $cond) { throw $msg } }
+function Assert($cond, [string]$msg) { if (-not $cond) { throw $msg } }
 
 function Run-Setup([string[]]$SetupArgs, [string]$LogName) {
     $log = Join-Path $Out $LogName
@@ -33,20 +35,33 @@ function Run-Setup([string[]]$SetupArgs, [string]$LogName) {
 }
 function Run-Uninstall([string]$LogName) {
     $u = Join-Path $app 'unins000.exe'
-    Assert (Test-Path $u) 'unins000.exe missing'
-    $p = Start-Process -FilePath $u -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$(Join-Path $Out $LogName)`"") -Wait -PassThru
-    $deadline = (Get-Date).AddSeconds(180)
+    if (-not (Test-Path $u)) { Note 'unins000.exe missing'; return -1 }
+    $p = Start-Process -FilePath $u -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$(Join-Path $Out $LogName)`"") -PassThru
+    $deadline = (Get-Date).AddSeconds(240)
     while ((Test-Path $u) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
-    Assert (-not (Test-Path $u)) 'uninstaller did not finish within 180 s'
-    return $p.ExitCode
+    if (Test-Path $u) {
+        Note 'uninstaller still running after 240 s; diagnostics:'
+        Get-Process | Where-Object { $_.ProcessName -match '^(_iu|unins|powershell|TruckGate|postgres|pg_ctl)' } |
+            ForEach-Object { Note ("  process " + $_.ProcessName + " " + $_.Id + " " + $(try { $_.Path } catch { '' })) }
+        Get-Service TruckGate, TruckGateDB -ErrorAction SilentlyContinue | ForEach-Object { Note "  service $($_.Name) $($_.Status)" }
+        $t = Join-Path ([IO.Path]::GetTempPath()) 'truckgate-uninstall.log'
+        if (Test-Path $t) { Get-Content $t | ForEach-Object { Note "  | $_" } }
+        return -2
+    }
+    $p.WaitForExit()
+    return 0
 }
 function Health { Invoke-RestMethod -Uri "$base/health" -TimeoutSec 10 }
+# Returns the request headers of a signed-in session (cookie set explicitly: Windows PowerShell's
+# cookie container is not what is being tested here).
 function Login([string]$user, [string]$pass) {
-    $s = $null
     $body = @{ username = $user; secret = $pass } | ConvertTo-Json
-    Invoke-WebRequest -Uri "$base/api/auth/login" -Method Post -Body $body -ContentType 'application/json' `
-        -Headers @{ 'X-TG-CSRF' = '1' } -SessionVariable s -UseBasicParsing | Out-Null
-    return $s
+    $r = Invoke-WebRequest -Uri "$base/api/auth/login" -Method Post -Body $body -ContentType 'application/json' `
+        -Headers @{ 'X-TG-CSRF' = '1' } -UseBasicParsing
+    $set = [string]$r.Headers['Set-Cookie']
+    $pairs = [regex]::Matches($set, '(tg_session[A-Za-z0-9]*)=([^;,\s]+)') | ForEach-Object { $_.Groups[1].Value + '=' + $_.Groups[2].Value }
+    if (-not $pairs) { throw "login answered HTTP $($r.StatusCode) without a session cookie: $set" }
+    return @{ Cookie = ($pairs -join '; '); 'X-TG-CSRF' = '1' }
 }
 function Get-PeMachine([string]$path) {
     $b = [IO.File]::ReadAllBytes($path)
@@ -65,6 +80,21 @@ Note "Machine: $($os.Caption) $($os.Version) $($os.OSArchitecture), PowerShell $
 Note "Installer: $(Split-Path $Installer -Leaf) $((Get-Item $Installer).Length) bytes, PE $(Get-PeMachine $Installer)"
 Note ''
 
+function Show-Logs {
+    $ErrorActionPreference = 'Continue'
+    Write-Host ('----- whoami: ' + (& whoami.exe /groups | Select-String 'Mandatory Label|S-1-5-32-544' | Out-String))
+    foreach ($d in @($root, (Join-Path $root 'logs'), (Join-Path $root 'logs\install.log'), (Join-Path $root 'config'), (Join-Path $root 'pgdata'))) {
+        Write-Host "----- icacls $d"; & icacls.exe $d 2>&1 | ForEach-Object { Write-Host "  | $_" }
+    }
+    foreach ($f in @((Join-Path $env:TEMP 'truckgate-install.log'), (Join-Path $root 'logs\install.log'), (Join-Path $Out 'setup-1-install.log'))) {
+        try {
+            if (Test-Path $f) { Write-Host "----- tail of $f"; Get-Content $f -Tail 120 | ForEach-Object { Write-Host "  | $_" } }
+        } catch { Write-Host "----- cannot read $f : $($_.Exception.Message)" }
+    }
+    $latest = Get-ChildItem (Join-Path $root 'logs') -Filter 'truckgate-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+    if ($latest) { Write-Host "----- tail of $($latest.FullName)"; Get-Content $latest.FullName -Tail 60 | ForEach-Object { Write-Host "  | $_" } }
+}
+try {
 # ---------------------------------------------------------------- 1. fresh server install
 Note '== 1. Fresh install (type: server + gate station), address detected automatically'
 $code = Run-Setup @('/TYPE=server') 'setup-1-install.log'
@@ -104,25 +134,11 @@ Check 'web UI served (index.html and its script)' {
     Assert ($j.StatusCode -eq 200 -and $j.RawContentLength -gt 100000) 'script not served'
     $js
 }
-function Show-Logs {
-    $ErrorActionPreference = 'Continue'
-    Write-Host ('----- whoami: ' + (& whoami.exe /groups | Select-String 'Mandatory Label|S-1-5-32-544' | Out-String))
-    foreach ($d in @($root, (Join-Path $root 'logs'), (Join-Path $root 'logs\install.log'), (Join-Path $root 'config'), (Join-Path $root 'pgdata'))) {
-        Write-Host "----- icacls $d"; & icacls.exe $d 2>&1 | ForEach-Object { Write-Host "  | $_" }
-    }
-    foreach ($f in @((Join-Path $env:TEMP 'truckgate-install.log'), (Join-Path $root 'logs\install.log'), (Join-Path $Out 'setup-1-install.log'))) {
-        try {
-            if (Test-Path $f) { Write-Host "----- tail of $f"; Get-Content $f -Tail 120 | ForEach-Object { Write-Host "  | $_" } }
-        } catch { Write-Host "----- cannot read $f : $($_.Exception.Message)" }
-    }
-    $latest = Get-ChildItem (Join-Path $root 'logs') -Filter 'truckgate-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
-    if ($latest) { Write-Host "----- tail of $($latest.FullName)"; Get-Content $latest.FullName -Tail 60 | ForEach-Object { Write-Host "  | $_" } }
-}
 $siteConfig = Join-Path $root 'config\appsettings.json'
 if (-not (Test-Path $siteConfig)) {
+    $script:failed++
     Note 'FAIL  server configuration was not written: the server part of the installation failed'
-    Show-Logs
-    exit 1
+    throw 'stop'
 }
 $cfg = Get-Content $siteConfig -Raw | ConvertFrom-Json
 $publicUrl = [string]$cfg.Server.PublicUrl
@@ -153,7 +169,7 @@ Check 'secrets and configuration not readable by ordinary users' {
 Check 'no password in the program folder' {
     $hits = Get-ChildItem $app -Recurse -Include *.json, *.ps1, *.cmd, *.sql, *.config -File |
         Select-String -Pattern 'Password=(?!CHANGE_ME)[^;"$]{6,}' -List
-    Assert (-not $hits) ("found in " + ($hits.Path -join ','))
+    if ($hits) { throw ("found in " + (@($hits | ForEach-Object { $_.Path }) -join ',')) }
     'appsettings.json in the program folder has placeholders only'
 }
 Check 'firewall rule TCP 5080 from local subnet' {
@@ -179,7 +195,7 @@ $script:session = $null
 $script:inviteKey = $null
 Check 'login with the new administrator' {
     $script:session = Login 'admin' $adminPass
-    $me = Invoke-RestMethod -Uri "$base/api/auth/me" -WebSession $script:session
+    $me = Invoke-RestMethod -Uri "$base/api/auth/me" -Headers $script:session
     Assert ($me.role -eq 'ADMIN') ($me | ConvertTo-Json -Compress)
     "role $($me.role)"
 }
@@ -187,7 +203,7 @@ Check 'wrong password refused' {
     try { Login 'admin' 'wrong-password-123' | Out-Null; throw 'accepted' } catch [System.Net.WebException] { 'HTTP ' + [int]$_.Exception.Response.StatusCode }
 }
 Check 'phone enrollment code: server key created by the service, address = detected one' {
-    $inv = Invoke-RestMethod -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"CI phone"}' -ContentType 'application/json' -Headers @{ 'X-TG-CSRF' = '1' } -WebSession $script:session
+    $inv = Invoke-RestMethod -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"CI phone"}' -ContentType 'application/json' -Headers $script:session
     $parts = $inv.qrText.Split('|')
     Assert ($parts[0] -eq 'TGE1' -and $parts[1] -eq $publicUrl) $inv.qrText.Substring(0, 40)
     $script:inviteKey = $parts[3]
@@ -197,17 +213,18 @@ Check 'phone enrollment code: server key created by the service, address = detec
     'TGE1|' + $parts[1] + '|...'
 }
 Check 'server-address code for enrolled phones (signed)' {
-    $a = Invoke-RestMethod -Uri "$base/api/admin/server-address" -WebSession $script:session
+    $a = Invoke-RestMethod -Uri "$base/api/admin/server-address" -Headers $script:session
     Assert ($a.qrText.StartsWith("TGA1|$publicUrl|")) $a.qrText
     $a.url
 }
 Check 'dashboard report answers' {
-    $d = Invoke-WebRequest -Uri "$base/api/reports/dashboard" -WebSession $script:session -UseBasicParsing
+    $d = Invoke-WebRequest -Uri "$base/api/reports/dashboard" -Headers $script:session -UseBasicParsing
     "HTTP $($d.StatusCode)"
 }
 Check 'CSRF: state change without the header refused' {
     try {
-        Invoke-WebRequest -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"x"}' -ContentType 'application/json' -WebSession $script:session -UseBasicParsing | Out-Null
+        $h = @{ Cookie = $script:session.Cookie }
+        Invoke-WebRequest -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"x"}' -ContentType 'application/json' -Headers $h -UseBasicParsing | Out-Null
         throw 'accepted'
     } catch [System.Net.WebException] { $c = [int]$_.Exception.Response.StatusCode; Assert ($c -eq 403) "HTTP $c"; 'HTTP 403' }
 }
@@ -256,7 +273,7 @@ $code = Run-Setup @('/TYPE=server') 'setup-2-upgrade.log'
 Check 'upgrade exit code 0, healthy' { Assert ($code -eq 0) "exit $code"; Assert ((Health).status -eq 'ok') 'not healthy' }
 Check 'administrator still signs in, same server key' {
     $s = Login 'admin' $adminPass
-    $inv = Invoke-RestMethod -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"CI phone 2"}' -ContentType 'application/json' -Headers @{ 'X-TG-CSRF' = '1' } -WebSession $s
+    $inv = Invoke-RestMethod -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"CI phone 2"}' -ContentType 'application/json' -Headers $s
     Assert ($inv.qrText.Split('|')[3] -eq $script:inviteKey) 'server key changed'
     'ok'
 }
@@ -282,7 +299,7 @@ Check 'reinstall exit code 0, healthy, same administrator and key' {
     Assert ($code -eq 0) "exit $code"
     Assert ((Health).status -eq 'ok') 'not healthy'
     $s = Login 'admin' $adminPass
-    $inv = Invoke-RestMethod -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"CI phone 3"}' -ContentType 'application/json' -Headers @{ 'X-TG-CSRF' = '1' } -WebSession $s
+    $inv = Invoke-RestMethod -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"CI phone 3"}' -ContentType 'application/json' -Headers $s
     Assert ($inv.qrText.Split('|')[3] -eq $script:inviteKey) 'server key changed'
     'ok'
 }
@@ -309,7 +326,12 @@ $code = Run-Uninstall 'setup-7-station-uninstall.log'
 Check 'station uninstall exit code 0' { Assert ($code -eq 0) "exit $code" }
 
 Note ''
-if ($script:failed) { Show-Logs }
-Note "RESULT: $(if ($script:failed -eq 0) { 'ALL PASSED' } else { "$($script:failed) FAILED" })"
-Copy-Item (Join-Path $root 'logs\*') $Out -ErrorAction SilentlyContinue
+} catch {
+    if ($_.Exception.Message -ne 'stop') { $script:failed++; Note "FAIL  test script error: $($_.Exception.Message) $($_.InvocationInfo.PositionMessage)" }
+} finally {
+    if ($script:failed) { Show-Logs }
+    Note "RESULT: $(if ($script:failed -eq 0) { 'ALL PASSED' } else { "$($script:failed) FAILED" })"
+    Copy-Item (Join-Path $root 'logs\*') $Out -ErrorAction SilentlyContinue
+    Copy-Item (Join-Path ([IO.Path]::GetTempPath()) 'truckgate-*.log') $Out -ErrorAction SilentlyContinue
+}
 exit $script:failed

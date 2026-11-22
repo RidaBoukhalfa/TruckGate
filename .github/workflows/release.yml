@@ -13,6 +13,11 @@ on:
 permissions:
   contents: write
 
+defaults:
+  run:
+    # explicit bash = -eo pipefail, so a failing command piped into tee fails the step
+    shell: bash
+
 env:
   TG_VERSION: "1.0.0"
   PG_VERSION: "16.16"
@@ -35,7 +40,10 @@ jobs:
       - run: mkdir -p apk-out
       - name: Unit tests (ticket format conformance, quarry rules)
         working-directory: quarry-app
-        run: ./gradlew :ticket-format:test :quarry-core:test --no-daemon 2>&1 | tee ../apk-out/unit-tests.log
+        run: |
+          # one retry: Maven Central sometimes answers 429 to CI runners
+          ./gradlew :ticket-format:test :quarry-core:test --no-daemon 2>&1 | tee ../apk-out/unit-tests.log ||
+            { sleep 60; ./gradlew :ticket-format:test :quarry-core:test --no-daemon 2>&1 | tee ../apk-out/unit-tests.log; }
       - name: Summarise unit tests
         run: |
           python3 - <<'EOF' | tee apk-out/unit-tests-summary.txt
@@ -49,7 +57,9 @@ jobs:
           EOF
       - name: Build debug APK
         working-directory: quarry-app
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee ../apk-out/build-debug.log
+        run: |
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee ../apk-out/build-debug.log ||
+            { sleep 60; ./gradlew :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee ../apk-out/build-debug.log; }
       - name: Release signing key (only if the repository has the secrets)
         id: keystore
         env:

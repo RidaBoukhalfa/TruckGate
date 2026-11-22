@@ -100,8 +100,9 @@ function Get-TgServiceSid([string]$Name) {
 # Replaces the permissions of a folder (or file) with exactly the given SID:rights entries.
 function Set-TgAcl([string]$Path, [string[]]$Grants, [switch]$File) {
     $icacls = "$env:SystemRoot\System32\icacls.exe"
-    Invoke-TgTool -Exe $icacls -Arguments @($Path, '/inheritance:r') -Quiet | Out-Null
-    $icArgs = @($Path, '/grant:r')
+    # one call: removing inheritance and granting in two steps would leave the folder with no
+    # access at all in between (even for administrators) if the second step did not run
+    $icArgs = @($Path, '/inheritance:r', '/grant:r')
     foreach ($g in $Grants) {
         $sid, $rights = $g.Split(':', 2)
         if ($File) { $icArgs += ('*' + $sid + ':' + $rights) } else { $icArgs += ('*' + $sid + ':(OI)(CI)' + $rights) }
