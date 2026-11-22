@@ -1,8 +1,10 @@
 package dz.truckgate.quarry.security
 
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
+import androidx.annotation.RequiresApi
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -14,6 +16,7 @@ import java.nio.ByteBuffer
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
+import java.security.ProviderException
 import java.security.Signature
 import java.security.spec.ECGenParameterSpec
 
@@ -39,31 +42,63 @@ object DeviceKeys {
         generate(AUTH, attestationChallenge, userAuth = false)
     }
 
-    private fun generate(alias: String, challenge: ByteArray, userAuth: Boolean) {
-        fun spec(strongBox: Boolean): KeyGenParameterSpec =
-            KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
-                .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
-                .setDigests(KeyProperties.DIGEST_SHA256)
-                .setAttestationChallenge(challenge)
-                .apply {
-                    if (userAuth) {
-                        setUserAuthenticationRequired(true)
+    /**
+     * Android 11+: the ticket key accepts only a strong biometric, for every use
+     * (setUserAuthenticationParameters(0, BIOMETRIC_STRONG)).
+     * Android 8–10: validity -1 = authentication for every use; before Android 11 such a key can
+     * only be unlocked through BiometricPrompt with a CryptoObject, i.e. by a fingerprint — the
+     * screen-lock PIN cannot unlock it. Same rule, older API.
+     */
+    internal fun spec(alias: String, challenge: ByteArray?, userAuth: Boolean, strongBox: Boolean): KeyGenParameterSpec =
+        KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
+            .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
+            .setDigests(KeyProperties.DIGEST_SHA256)
+            .apply {
+                if (challenge != null) setAttestationChallenge(challenge)
+                if (userAuth) {
+                    setUserAuthenticationRequired(true)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
-                        setInvalidatedByBiometricEnrollment(true)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        setUserAuthenticationValidityDurationSeconds(-1)
                     }
-                    if (strongBox) setIsStrongBoxBacked(true)
+                    setInvalidatedByBiometricEnrollment(true)
                 }
-                .build()
+                if (strongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) setIsStrongBoxBacked(true)
+            }
+            .build()
 
+    internal fun generate(alias: String, challenge: ByteArray, userAuth: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && StrongBox.tryGenerate(alias, challenge, userAuth)) return
         val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
         try {
-            generator.initialize(spec(strongBox = true))
+            generator.initialize(spec(alias, challenge, userAuth, strongBox = false))
             generator.generateKeyPair()
-        } catch (e: StrongBoxUnavailableException) {
-            generator.initialize(spec(strongBox = false))
+        } catch (e: ProviderException) {
+            // Some older phones keep keys in secure hardware but cannot produce an attestation
+            // certificate. The key is still created inside Android Keystore, just without the
+            // attestation (the server stores it as missing).
+            generator.initialize(spec(alias, null, userAuth, strongBox = false))
             generator.generateKeyPair()
         }
     }
+
+    /** Separate class: StrongBoxUnavailableException exists only from Android 9. */
+    @RequiresApi(Build.VERSION_CODES.P)
+    private object StrongBox {
+        fun tryGenerate(alias: String, challenge: ByteArray, userAuth: Boolean): Boolean = try {
+            KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore").run {
+                initialize(spec(alias, challenge, userAuth, strongBox = true))
+                generateKeyPair()
+            }
+            true
+        } catch (e: StrongBoxUnavailableException) {
+            false
+        }
+    }
+
+    internal fun delete(alias: String) = keyStore().deleteEntry(alias)
 
     val ticketPublicKey: ByteArray get() = keyStore().getCertificate(TICKET).publicKey.encoded
     val authPublicKey: ByteArray get() = keyStore().getCertificate(AUTH).publicKey.encoded

@@ -12,7 +12,7 @@ process unchanged during the pilot** and compare every day.
 | Accounts | Admin, 1 supervisor, the gatekeepers (PIN), the quarry operators (PIN), accountant, manager |
 | Fleet | Every truck (fixed number, fleet number painted on it, plate) and every driver entered |
 | Quarry site | Boundary drawn (walk the quarry edge with a phone GPS app and note 5–10 points) |
-| Phones | 1–2 Android phones (Android 11+, fingerprint, GPS), enrolled at the factory, kiosk mode, Bluetooth printer paired and tested with Arabic, spare paper rolls, power bank |
+| Phones | 1–2 Android phones (Android 8.0+, fingerprint, GPS), enrolled at the factory, kiosk mode, Bluetooth printer paired and tested with Arabic, spare paper rolls, power bank |
 | Cameras | Rear-plate and cargo cameras added and tested **at night**; plate readable at the stopping point |
 | Gate PC | Chrome with `--kiosk-printing`, receipt printer, USB scanner in keyboard mode with Enter, tested on a printed ticket in daylight and at night |
 | Alerts | WhatsApp template approved and tested to every manager; SMS through the ZTE router tested (critical alerts when the internet is down) |

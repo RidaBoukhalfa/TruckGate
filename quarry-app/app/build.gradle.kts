@@ -10,11 +10,20 @@ android {
 
     defaultConfig {
         applicationId = "dz.truckgate.quarry"
-        // Android 11+: per-use biometric keys (setUserAuthenticationParameters).
-        minSdk = 30
+        // Android 8.0+: java.time / java.util.Base64, per-use fingerprint keys (see DeviceKeys).
+        minSdk = 26
         targetSdk = 35
-        versionCode = 100
-        versionName = "1.0.0"
+        versionCode = 101
+        versionName = "1.0.1"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // API-level mistakes (a call that does not exist on the oldest supported Android) fail the build.
+    lint {
+        checkOnly += setOf("NewApi", "InlinedApi")
+        checkDependencies = true
+        abortOnError = true
+        textReport = true
     }
 
     // Release signing comes only from the build environment (CI secrets), never from the repository:
@@ -74,4 +83,7 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

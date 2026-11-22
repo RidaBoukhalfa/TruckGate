@@ -115,3 +115,14 @@ labeled frames kept permanently; trip evidence kept per accounting rules.
 
 Router protocols were implemented from public descriptions of the routers' web interfaces; no third-party
 source code is included in TruckGate.
+
+## Oldest supported Android: 8.0 (API 26) — 2026-11-22
+
+The first field phone runs an Android version older than 11, so the minimum went from Android 11 to
+Android 8.0. The ticket key keeps the same rule on every version: a fingerprint for every signature
+(Android 11+: `setUserAuthenticationParameters(0, BIOMETRIC_STRONG)`; Android 8–10: validity −1,
+which only a fingerprint through BiometricPrompt can unlock — the screen PIN cannot). Differences on
+older phones: StrongBox only from Android 9 and only on some phones; some older phones cannot produce
+a key attestation certificate — the key is then still created in Android Keystore and the server
+stores the attestation as missing. Android 8.0 is the floor because the app uses java.time and
+java.util.Base64 (API 26). Emulator tests run on Android 8.0, 9, 10, 11 and 14.

@@ -5,7 +5,7 @@ Two files:
 | File | Where it goes |
 |---|---|
 | `TruckGate-Windows-Setup.exe` | The factory PC that will be the **server** (and usually also the gate station). Optionally other PCs as extra gate stations. |
-| `TruckGate-Quarry.apk` | Each quarry phone (Android 11 or newer). |
+| `TruckGate-Quarry.apk` | Each quarry phone (Android 8.0 or newer). |
 
 **ملخص بالعربية:** ثبّت `TruckGate-Windows-Setup.exe` على حاسوب المصنع (الخادم) واختر «Server + gate station»، ثم أنشئ حساب المدير. ثبّت `TruckGate-Quarry.apk` على هاتف المقلع، واسمح بالكاميرا والموقع والبلوتوث، ثم امسح رمز التسجيل الذي تعرضه شاشة الإدارة (هواتف المقلع ← رمز تسجيل جديد). يجب أن يكون الهاتف على شبكة Wi‑Fi المصنع نفسها. إذا تغيّر عنوان الخادم: «Change server address» في قائمة ابدأ، ثم «رمز عنوان الخادم» لكل هاتف.
 
@@ -70,7 +70,7 @@ Run the same installer on that PC and choose **Gate station only (the TruckGate 
 
 ## 4. Install the quarry phone app (Android)
 
-**Requirements:** Android 11 or newer, camera, GPS, Bluetooth (for the ticket printer), a **screen lock with a fingerprint** registered (each ticket is signed after a fingerprint check).
+**Requirements:** Android 8.0 or newer (tested on emulators for Android 8.0, 9, 10, 11 and 14), camera, GPS, Bluetooth (for the ticket printer), a **screen lock with a fingerprint** registered (each ticket is signed after a fingerprint check).
 
 1. Copy `TruckGate-Quarry.apk` to the phone (USB cable or a file-sharing app; some messaging apps rename `.apk` files).
 2. Open it from the phone's file manager. Android asks to allow **Install unknown apps** for that file manager: allow it, go back, install. Google Play Protect may warn that the app is unknown: choose **Install anyway** (the app is not distributed through the Play Store).

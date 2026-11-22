@@ -10,11 +10,11 @@ echo "sha256=$(sha256sum "$APK" | cut -d' ' -f1)"
 echo "build_tools=$(basename "$BT")"
 echo
 echo "== aapt2 dump badging"
-"$BT/aapt2" dump badging "$APK" | grep -E "^(package|sdkVersion|targetSdkVersion|application-label|launchable-activity|uses-permission|native-code|uses-feature)" || true
+"$BT/aapt2" dump badging "$APK" | grep -E "^(package|sdkVersion|minSdkVersion|targetSdkVersion|application-label:|launchable-activity|uses-permission|native-code|uses-feature)" || true
 badging=$("$BT/aapt2" dump badging "$APK")
 grep -q "package: name='dz.truckgate.quarry'" <<<"$badging" || { echo "FAIL package name"; fail=1; }
-grep -q "versionName='1.0.0'" <<<"$badging" || { echo "FAIL versionName"; fail=1; }
-grep -Eq "(sdkVersion|minSdkVersion):'30'" <<<"$badging" || { echo "FAIL minSdk"; fail=1; }
+grep -q "versionName='${APK_VERSION_NAME:?}'" <<<"$badging" || { echo "FAIL versionName"; fail=1; }
+grep -Eq "(sdkVersion|minSdkVersion):'${APK_MIN_SDK:?}'" <<<"$badging" || { echo "FAIL minSdk"; fail=1; }
 echo
 echo "== apksigner verify"
 "$BT/apksigner" verify --verbose --print-certs "$APK" | grep -vE "^WARNING: META-INF" || { echo "FAIL signature"; fail=1; }

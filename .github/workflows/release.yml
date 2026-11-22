@@ -20,6 +20,9 @@ defaults:
 
 env:
   TG_VERSION: "1.0.0"
+  # Android app version and oldest supported Android (API 26 = Android 8.0), checked in the APK
+  APK_VERSION_NAME: "1.0.1"
+  APK_MIN_SDK: "26"
   PG_VERSION: "16.16"
   # EnterpriseDB "PostgreSQL binaries" zip for Windows x64 (linked from postgresql.org/download/windows)
   PG_URL: https://sbp.enterprisedb.com/getfile.jsp?fileid=1260731
@@ -58,8 +61,11 @@ jobs:
       - name: Build debug APK
         working-directory: quarry-app
         run: |
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee ../apk-out/build-debug.log ||
-            { sleep 60; ./gradlew :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee ../apk-out/build-debug.log; }
+          T=":app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug"
+          ./gradlew $T --no-daemon --stacktrace 2>&1 | tee ../apk-out/build-debug.log ||
+            { sleep 60; ./gradlew $T --no-daemon --stacktrace 2>&1 | tee ../apk-out/build-debug.log; }
+          cp app/build/reports/lint-results-debug.txt ../apk-out/lint-api-levels.txt
+          cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk ../apk-out/TruckGate-Quarry-tests.apk
       - name: Release signing key (only if the repository has the secrets)
         id: keystore
         env:
@@ -107,7 +113,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [30, 34]
+        api: [26, 28, 29, 30, 34]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -127,7 +133,7 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
-          script: bash .github/scripts/emulator-test.sh apk/TruckGate-Quarry.apk ${{ matrix.api }} emulator-out
+          script: bash .github/scripts/emulator-test.sh apk/TruckGate-Quarry.apk apk/TruckGate-Quarry-tests.apk ${{ matrix.api }} emulator-out
       - uses: actions/upload-artifact@v4
         if: always()
         with:

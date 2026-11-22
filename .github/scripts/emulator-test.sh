@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Installs and launches the APK on an Android emulator; checks the permission screen, then the
 # enrollment screen once the runtime permissions this Android version asks for are granted.
-# Usage: emulator-test.sh APK API OUTDIR
+# Then runs the Keystore instrumentation tests (DeviceKeysTest) with a screen-lock PIN set.
+# Usage: emulator-test.sh APK TEST_APK API OUTDIR
 set -uo pipefail
-APK="$1"; API="$2"; OUT="$3"; PKG=dz.truckgate.quarry
+APK="$1"; TEST_APK="$2"; API="$3"; OUT="$4"; PKG=dz.truckgate.quarry
 mkdir -p "$OUT"
 R="$OUT/emulator-api$API.txt"
 log() { echo "$*" | tee -a "$R"; }
@@ -44,5 +45,20 @@ if grep -E "FATAL EXCEPTION|AndroidRuntime: Process: $PKG" "$OUT/api$API-logcat.
 else
   log "PASS  no crash in logcat"
 fi
+
+# ---- Android Keystore code on this Android version
+if adb install -r "$TEST_APK" >>"$R" 2>&1; then log "PASS  install instrumentation tests"; else log "FAIL  install instrumentation tests"; fail=1; fi
+if adb shell locksettings set-pin 1111 >>"$R" 2>&1; then log "  screen-lock PIN set (so the fingerprint rule itself is what refuses the ticket key)"; else log "  could not set a PIN on this version (lock-screen rule tested instead)"; fi
+adb logcat -c
+adb shell am instrument -w -r $PKG.test/androidx.test.runner.AndroidJUnitRunner > "$OUT/api$API-instrumentation.txt" 2>&1
+adb logcat -d -s TruckGateTest:I > "$OUT/api$API-keystore.txt" 2>&1
+sed 's/^/  /' "$OUT/api$API-keystore.txt" | grep -v "^  ---" | tee -a "$R"
+if grep -q "INSTRUMENTATION_CODE: -1" "$OUT/api$API-instrumentation.txt" && ! grep -q "FAILURES!!!" "$OUT/api$API-instrumentation.txt"; then
+  log "PASS  Keystore tests: $(grep -E '^OK \(' "$OUT/api$API-instrumentation.txt" | tr -d '\r')"
+else
+  log "FAIL  Keystore tests"; grep -E "INSTRUMENTATION_STATUS: stack|Error|Exception" "$OUT/api$API-instrumentation.txt" | head -20 | tee -a "$R"; fail=1
+fi
+adb shell locksettings clear --old 1111 >/dev/null 2>&1 || true
+adb uninstall $PKG.test >>"$R" 2>&1
 adb uninstall $PKG >>"$R" 2>&1 && log "PASS  uninstall"
 exit $fail

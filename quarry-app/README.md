@@ -6,11 +6,11 @@ Android app used by the quarry operator to issue signed transport tickets and pr
 |---|---|---|
 | `ticket-format` | Ticket bytes, Base45 QR text, signatures (shared with the server via `ticket-spec`) | any JVM |
 | `quarry-core` | Issuance rules (20-minute truck rule, GPS time, geofence, sync deadline), printer-agnostic ESC/POS encoder, enrollment QR, signed config, PIN check | any JVM |
-| `app` | Android UI, Keystore keys, fingerprint, GPS, camera, Bluetooth printing, local storage | Android 11+ |
+| `app` | Android UI, Keystore keys, fingerprint, GPS, camera, Bluetooth printing, local storage | Android 8.0+ |
 
 ## Phone requirements
 
-- Android 11 or newer, fingerprint sensor (strong biometric), GPS, camera, Bluetooth.
+- Android 8.0 or newer, fingerprint sensor (strong biometric), GPS, camera, Bluetooth.
 - Prefer a phone whose Keystore has StrongBox (hardware security chip); the app uses it automatically.
 
 ## Printer
