@@ -1,0 +1,47 @@
+{
+  "description": "Signature checks over bytes 0..62 with SHA-256 / ECDSA P-256, raw r||s. Note: valid_malleated_signature MUST verify; single-use is enforced by ticket ID.",
+  "cases": [
+    {
+      "name": "valid",
+      "ticket_hex": "01010001000001e26b0284e000030005000c00020217f100ffed2979000007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc582cf294d0236cfd10fd89640dd0061d83ebabac74ce46ff938fb0413a2ff2ca71cba16d74570afb09ecb4ff98b403ae372fded372fc836ae750ee7ceec27e0d9",
+      "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+      "expected_valid": true
+    },
+    {
+      "name": "valid_malleated_signature",
+      "ticket_hex": "01010001000001e26b0284e000030005000c00020217f100ffed2979000007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc582cf294d0236cfd10fd89640dd0061d83ebabac74ce46ff938fb0413a2ff2ca7e345e927ba8f50506134b00674bfc51c49e90d76774f67d67eaae2f4103b4478",
+      "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+      "expected_valid": true
+    },
+    {
+      "name": "tampered_truck_id",
+      "ticket_hex": "01010001000001e26b0284e000030004000c00020217f100ffed2979000007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc582cf294d0236cfd10fd89640dd0061d83ebabac74ce46ff938fb0413a2ff2ca71cba16d74570afb09ecb4ff98b403ae372fded372fc836ae750ee7ceec27e0d9",
+      "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+      "expected_valid": false
+    },
+    {
+      "name": "signed_by_other_key",
+      "ticket_hex": "01010001000001e26b0284e000030005000c00020217f100ffed2979000007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc5c2ea8718679ae896210759b63bea790ea474688684ec37fa3d9d6288b881512c7bfcab865ecc1262602055e9ba931a0a16fc92975eed395ba2de7c059e732def",
+      "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+      "expected_valid": false
+    },
+    {
+      "name": "verified_with_wrong_registered_key",
+      "ticket_hex": "01010001000001e26b0284e000030005000c00020217f100ffed2979000007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc582cf294d0236cfd10fd89640dd0061d83ebabac74ce46ff938fb0413a2ff2ca71cba16d74570afb09ecb4ff98b403ae372fded372fc836ae750ee7ceec27e0d9",
+      "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+      "expected_valid": false
+    },
+    {
+      "name": "all_zero_signature",
+      "ticket_hex": "01010001000001e26b0284e000030005000c00020217f100ffed2979000007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+      "expected_valid": false
+    },
+    {
+      "name": "r_is_zero",
+      "ticket_hex": "01010001000001e26b0284e000030005000c00020217f100ffed2979000007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc500000000000000000000000000000000000000000000000000000000000000001cba16d74570afb09ecb4ff98b403ae372fded372fc836ae750ee7ceec27e0d9",
+      "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+      "expected_valid": false
+    }
+  ]
+}

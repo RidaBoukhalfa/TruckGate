@@ -1,0 +1,1748 @@
+{
+  "description": "Gate policy vectors. Each case carries its full context. Implementations must return the same outcome, reasons (same order) and notes. Check order is normative (SPEC §6).",
+  "cases": [
+    {
+      "name": "accept_normal",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBWU5LSNNT9R2BEYEMRVPSOVH58-XSP4W./6:DPL2MZ*177Q%15$4",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "ACCEPT",
+        "reasons": [],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "accept_with_driver_changed_note",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5YM0%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9+/O37V:V2X59+8VDK9HI3%O00110 N4VC+OIP2F0*BZTEE5R%50BV2$DS..MQYLQ2908JTEA3LBJPQSQCFZHJPOD$K$T25-PA1",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "ACCEPT",
+        "reasons": [],
+        "notes": [
+          "DRIVER_CHANGED"
+        ],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "accept_exactly_min_travel",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBWU5LSNNT9R2BEYEMRVPSOVH58-XSP4W./6:DPL2MZ*177Q%15$4",
+      "context": {
+        "now": 1795327800,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "ACCEPT",
+        "reasons": [],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "accept_exactly_max_validity",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBWU5LSNNT9R2BEYEMRVPSOVH58-XSP4W./6:DPL2MZ*177Q%15$4",
+      "context": {
+        "now": 1795332600,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "ACCEPT",
+        "reasons": [],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "pending_too_early",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBWU5LSNNT9R2BEYEMRVPSOVH58-XSP4W./6:DPL2MZ*177Q%15$4",
+      "context": {
+        "now": 1795327500,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "PENDING",
+        "reasons": [
+          "TOO_EARLY"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "pending_expired",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBWU5LSNNT9R2BEYEMRVPSOVH58-XSP4W./6:DPL2MZ*177Q%15$4",
+      "context": {
+        "now": 1795333200,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "PENDING",
+        "reasons": [
+          "EXPIRED"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "pending_issued_in_future",
+      "qr_text": "TG1:W50100000WA0YNDBOH300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9D1P-8AA/6U6I/ RWCMOQJXM85447O2Z8NQAKD-MW-H5IFSR57COL$FF$6DFUFAK+HTF.TZ.C0 K:D5QH4ZI6O$R-XP /5D BT0",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "PENDING",
+        "reasons": [
+          "ISSUED_IN_FUTURE"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "pending_within_future_tolerance_too_early",
+      "qr_text": "TG1:W50100000WA0YNDBCH300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9C/OP1H0NL-AE YNA E:MO/S34V0KE26+I*58W1V-4K9AF:1PWV0H%M.NCGZ59YL6HJKIPYTAZV3O2LZU4Z$L4TME5C BKYP8M5",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "PENDING",
+        "reasons": [
+          "TOO_EARLY"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "pending_no_gps",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200000000000000V50%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9T.O5Q2M0MV+T9ZPK4VOP2:MSY:82*2ZP4J%4P/FCZV5J9JEOA*NL$2F44Y%GB%52K4+/RQJBF/SU/5EZL2BJ6TM8GTO$HVTU30",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "PENDING",
+        "reasons": [
+          "NO_GPS"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "pending_clock_mismatch",
+      "qr_text": "TG1:W50100000WA0YND-ZG0K0500C00200+B01LU.FW.A5N01%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9X/OCBATCR0TRBAM3.C+BMHTJ8FVZ91M1TNCBIKQQ5SO3HNL3B NNBKD/0PJ2/-0RAH$XJ1/CX%ORLB0Y1EKPVU90/BM:E+T9E5",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "PENDING",
+        "reasons": [
+          "CLOCK_MISMATCH"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "pending_outside_geofence",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5HB0%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R:O7F1ZRTDV9/FM609A%QKE3HT9VG3TUB7ZOZ.9X4CK$9 T3.I0 1J4D4:$5RXPG+15RQBX0FA4W/IA0JI%PZ%E0J5RMCYSCY1",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "PENDING",
+        "reasons": [
+          "OUTSIDE_GEOFENCE"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "pending_multiple_reasons",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5KS0%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R.O2OSJXGZZC9W0253A*8:QTW$I:6PZMMX+UN5H2T0+-JF-ERWGA37T2FX-1*64Y:HR+4-EWBBFS.6F547.S.OV%QA+D8Q0QH1",
+      "context": {
+        "now": 1795333200,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "PENDING",
+        "reasons": [
+          "EXPIRED",
+          "NO_GPS"
+        ],
+        "notes": [
+          "DRIVER_CHANGED"
+        ],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "pending_unknown_truck",
+      "qr_text": "TG1:W50100000WA0YND-ZG300920C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9P-OCSC0171:8DX0*XAK-KRQ313G9K0E9H%ZEU8M5UL3WGT269PHM$J828PKO7U7WA41 CG4DGZAS5RDRTQMKN+DP05+EF2YQU0",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "PENDING",
+        "reasons": [
+          "UNKNOWN_TRUCK"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "pending_inactive_truck",
+      "qr_text": "TG1:W50100000WA0YND-ZG300800C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9F.OYIFIJ6938YY0W3LOMTLKS::5BYT+F4J:6ZC72G7YX8N989YTKHC$NBOTJNYHM6UW$27NIR0Q4SVSFFFDIRL54Q3IBAAM0:4",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "PENDING",
+        "reasons": [
+          "UNKNOWN_TRUCK"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "reject_already_used",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBWU5LSNNT9R2BEYEMRVPSOVH58-XSP4W./6:DPL2MZ*177Q%15$4",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [
+          "Q1-000482"
+        ],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "ALREADY_USED"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "reject_malleated_copy_of_used_ticket",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBW4ALW$8015D5IC7AXT6W 0/AO-P3 KT./EW1AA5R6RLK%U7M7U2",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [
+          "Q1-000482"
+        ],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "ALREADY_USED"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "reject_voided",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBWU5LSNNT9R2BEYEMRVPSOVH58-XSP4W./6:DPL2MZ*177Q%15$4",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": [
+          "Q1-000482"
+        ]
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "VOIDED"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "reject_truck_gap",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBWU5LSNNT9R2BEYEMRVPSOVH58-XSP4W./6:DPL2MZ*177Q%15$4",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": 1795327500
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "TRUCK_GAP"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "accept_truck_gap_exactly_min",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBWU5LSNNT9R2BEYEMRVPSOVH58-XSP4W./6:DPL2MZ*177Q%15$4",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": 1795326900
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "ACCEPT",
+        "reasons": [],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "reject_device_revoked",
+      "qr_text": "TG1:W50200000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9%.OXB0IVASY96%K9QF0C01$FIIL.Y8MH4RRD1ZL/M9/C88-O02AY2EDZ8MAF$E41%BBU2 $1BUE%V18LPT5HL9NHWPZ$JR.0S4",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": 1795327140
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "DEVICE_REVOKED"
+        ],
+        "notes": [],
+        "ticket_id": "Q2-000482"
+      }
+    },
+    {
+      "name": "pending_issued_before_revocation",
+      "qr_text": "TG1:W50200000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9%.OXB0IVASY96%K9QF0C01$FIIL.Y8MH4RRD1ZL/M9/C88-O02AY2EDZ8MAF$E41%BBU2 $1BUE%V18LPT5HL9NHWPZ$JR.0S4",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": 1795327260
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "PENDING",
+        "reasons": [
+          "ISSUED_BEFORE_REVOCATION"
+        ],
+        "notes": [],
+        "ticket_id": "Q2-000482"
+      }
+    },
+    {
+      "name": "reject_unknown_device",
+      "qr_text": "TG1:W50700000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9K/OR%L8S4IED*EBI$F.XOM0HYTT2$RW4D*CBH-F7*ERF9EBWDG76GT-DF/DH075-ZT-DFGBIL1RKR5L20*.35/OHUV$*V9-K-1",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "UNKNOWN_DEVICE"
+        ],
+        "notes": [],
+        "ticket_id": "Q7-000482"
+      }
+    },
+    {
+      "name": "reject_forged_claiming_device_1",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C910P9TT$33BQJ3:I -0V1N+STD%1AWEB0H %TQSVF+JZCHUFG2S5I.VI:G.ZPTJC.34TOT%QIHC1%-V56JO:TDQBV5S/V0APEE5",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "BAD_SIGNATURE"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "reject_tampered",
+      "qr_text": "TG1:W50100000WA0YND-ZG300400C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBWU5LSNNT9R2BEYEMRVPSOVH58-XSP4W./6:DPL2MZ*177Q%15$4",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "BAD_SIGNATURE"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "reject_gate_station_key",
+      "qr_text": "TG1:W50300000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9V/ON8E9R0R2ICSB+CTR9HV/G9S2BVF.WSXCRDXO6:A$B9NTD6%V8SR7XMR50-NTDYBOM2-M08GCFLM*14C$11*EJLE4CDF7QV4",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "WRONG_DEVICE_KIND"
+        ],
+        "notes": [],
+        "ticket_id": "Q3-000482"
+      }
+    },
+    {
+      "name": "reject_decapage_kind",
+      "qr_text": "TG1:X50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R.OYD00F9X4W82P7HJ6:K2:7%25.E3QN5Q240HB5%S5/A78HN8JD7OEBRQIBT.71GV1D7M DDA7AIFR:G8047/JB95GBVD9B:2",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "WRONG_KIND"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    },
+    {
+      "name": "reject_reserved_flag",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5224%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9W0P82VAML.*57-C7K3U2JV8C5Z5KRG8NM16JE17TWLN/5YU2YH2UAOS9M %T/JS.X75SR23SA942PME*FW8THAMK7N/JVF:D94",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "MALFORMED"
+        ],
+        "notes": [],
+        "ticket_id": null
+      }
+    },
+    {
+      "name": "reject_malformed",
+      "qr_text": "TG1:NOT-A-TICKET",
+      "context": {
+        "now": 1795328100,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "MALFORMED"
+        ],
+        "notes": [],
+        "ticket_id": null
+      }
+    },
+    {
+      "name": "reject_combined_used_and_too_early",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBWU5LSNNT9R2BEYEMRVPSOVH58-XSP4W./6:DPL2MZ*177Q%15$4",
+      "context": {
+        "now": 1795327500,
+        "policy": {
+          "min_travel_s": 600,
+          "max_validity_s": 5400,
+          "min_truck_gap_s": 1200,
+          "future_tolerance_s": 120
+        },
+        "devices": [
+          {
+            "device_id": 1,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 2,
+            "kind": "QUARRY_PHONE",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+            "revoked_at": null
+          },
+          {
+            "device_id": 3,
+            "kind": "GATE_STATION",
+            "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+            "revoked_at": null
+          }
+        ],
+        "trucks": [
+          {
+            "truck_id": 5,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 6,
+            "active": true,
+            "last_entry_at": null
+          },
+          {
+            "truck_id": 8,
+            "active": false,
+            "last_entry_at": null
+          }
+        ],
+        "used_ticket_ids": [
+          "Q1-000482"
+        ],
+        "voided_ticket_ids": []
+      },
+      "expected": {
+        "outcome": "REJECT",
+        "reasons": [
+          "ALREADY_USED"
+        ],
+        "notes": [],
+        "ticket_id": "Q1-000482"
+      }
+    }
+  ]
+}

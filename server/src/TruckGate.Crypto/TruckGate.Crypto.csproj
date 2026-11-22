@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>TruckGate.Crypto</RootNamespace>
+    <Description>TruckGate ticket format, signature verification and gate policy (ticket-spec v1).</Description>
+  </PropertyGroup>
+</Project>
