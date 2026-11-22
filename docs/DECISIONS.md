@@ -86,3 +86,22 @@ labeled frames kept permanently; trip evidence kept per accounting rules.
 | Rejected scans | Also photographed and kept |
 | Logins | Gatekeepers and quarry operators: PIN; other roles: password of 10+ characters; lockout after 5 failures for 5 min; quarry operators cannot use the web UI |
 | Camera passwords | AES-256-GCM, key file outside the database, never in the audit log or API responses |
+
+## Exit, review, alerts, sync, payment (steps 5–6)
+| Topic | Decision |
+|---|---|
+| Gate receipt | Printed at entry from the browser on any installed printer; QR `TR1:` signed by the server key (85 bytes, spec §9); scanned in the same box as tickets |
+| Lost receipt | Exit chosen from the list of trucks inside, recorded `MANUAL_SELECT` / `RECEIPT_MISSING` |
+| Exit checks | Receipt forged → critical alert; reused → critical alert; exit < 3 min after entry or loaded exit → review |
+| Closing | Exit empty with no open review → trip `CLOSED` (payable) at once |
+| Truck never out | After 2 h → review `NO_EXIT_SCAN` + alert; supervisor acceptance closes it |
+| Damaged QR | Ticket number + short code, only against the synced copy, always PENDING (spec §5) |
+| Review | One decision per trip closes all its open reviews; reject needs a reason; decisions are final |
+| Random sample | 5 % of yesterday's accepted trips, at least one, every night |
+| AI labels | Per picture: load, plate text, quality; latest wins, history kept; zip export with labels.jsonl |
+| Alerts | SMS through a GSM modem (works offline, UCS-2 Arabic, ≤ 10/h, critical by default); Telegram bot (internet); WhatsApp not supported; 5 attempts per channel; every attempt logged |
+| Watchdog | Every minute: undecided entries, trucks never out, phones not synced 24 h, nightly sample; partial-load counters per driver and operator at decision time |
+| Phone sync | WorkManager whenever a network exists (≥ every 15 min) and right after each ticket; tickets, print counts and signed voids; photos only on Wi-Fi; requests signed with the auth key and time-stamped with the server clock |
+| Server checks on sync | Ticket signature with the phone's key, same number with different content → critical alert, void signature, photo SHA-256 equals the hash inside the ticket |
+| Payment | Statement per driver of `CLOSED` trips by entry date; CSV for Excel; recording a payment moves trips to `PAID` for good and keeps the batch |
+| Settings | Only known keys with bounds; quarry parameters reach phones in the signed configuration |

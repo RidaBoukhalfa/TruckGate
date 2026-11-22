@@ -16,12 +16,15 @@ Offline-first, tamper-evident, built to be sold as a standalone industrial produ
 | `web/` | React + TypeScript gate station and administration UI (Arabic / French), built into the server |
 | `deploy/` | One-time database setup |
 | `docs/DECISIONS.md` | Everything agreed so far: rules, parameters, technology, plan |
-| `docs/GATE_STATION.md` | Installation, camera discovery and selection, daily use at the gate |
+| `docs/GATE_STATION.md` | Installation, camera discovery and selection, daily use at the gate (entry, receipt, exit) |
+| `docs/OPERATIONS.md` | Supervisor review, alerts (SMS modem, Telegram), accountant, manager, AI training data |
+| `docs/PILOT.md` | Field pilot next to the paper process: checklist, daily routine, acceptance measures |
 
 ## Status
 
-Steps 1–4 of 7: ticket core, server core, quarry app, gate station with camera discovery.
-Not built yet: exit scan and receipt, supervisor review, alerts, phone sync. See `docs/DECISIONS.md`.
+Steps 1–6 of 7 are built: ticket core, server core, quarry app with background sync, gate station
+(entry, signed exit receipt, cameras), supervisor review with AI labels, alerts by SMS and Telegram,
+dashboard, statements and payments. Step 7 is the field pilot (`docs/PILOT.md`); it needs the site.
 
 ## Running the checks
 
