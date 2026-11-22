@@ -36,6 +36,26 @@ jobs:
           path: quarry-app/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
+  web:
+    name: Gate station web UI (TypeScript check + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: truckgate-web-wwwroot
+          path: server/src/TruckGate.Api/wwwroot/
+          if-no-files-found: error
+
   dotnet:
     name: C# server (crypto + PostgreSQL integration)
     runs-on: ubuntu-latest

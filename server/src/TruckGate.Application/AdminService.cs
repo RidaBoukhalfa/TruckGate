@@ -101,19 +101,68 @@ public sealed class AdminService(Db db)
         }, ct);
     }
 
-    /// <summary>Sets a user's PIN (only its PBKDF2 hash is stored; never written to the audit log).</summary>
-    public Task SetUserPinAsync(int userId, string pin, Actor actor, CancellationToken ct = default)
-    {
-        var hash = PinHasher.Hash(pin);
-        return db.InTransactionAsync(actor, async (conn, tx) =>
+    /// <summary>
+    /// Sets a user's PIN (gatekeepers, quarry operators) or password (other roles). Only the PBKDF2 hash
+    /// is stored, never written to the audit log. Also unlocks the account.
+    /// </summary>
+    public Task SetUserPinAsync(int userId, string secret, Actor actor, CancellationToken ct = default) =>
+        db.InTransactionAsync(actor, async (conn, tx) =>
         {
-            var n = await conn.ExecuteAsync(
-                "UPDATE tg.users SET pin_hash = @hash, pin_set_at = now() WHERE id = @userId AND active",
-                new { hash, userId }, tx);
-            if (n == 0) throw TruckGateException.NotFound("USER_NOT_FOUND", $"Active user {userId} does not exist.");
+            var role = await conn.ExecuteScalarAsync<string?>(
+                "SELECT role FROM tg.users WHERE id = @userId AND active FOR UPDATE", new { userId }, tx)
+                ?? throw TruckGateException.NotFound("USER_NOT_FOUND", $"Active user {userId} does not exist.");
+            SecretPolicy.Validate(role, secret);
+            await conn.ExecuteAsync("""
+                UPDATE tg.users SET pin_hash = @hash, pin_set_at = now(), failed_logins = 0, locked_until = NULL
+                WHERE id = @userId
+                """, new { hash = PinHasher.HashSecret(secret), userId }, tx);
             return 0;
         }, ct);
-    }
+
+    public Task SetUserActiveAsync(int userId, bool active, Actor actor, CancellationToken ct = default) =>
+        db.InTransactionAsync(actor, async (conn, tx) =>
+        {
+            var n = await conn.ExecuteAsync("UPDATE tg.users SET active = @active WHERE id = @userId", new { userId, active }, tx);
+            if (n == 0) throw TruckGateException.NotFound("USER_NOT_FOUND", $"User {userId} does not exist.");
+            return 0;
+        }, ct);
+
+    // ------------------------------------------------------------------ lists for the admin screens
+
+    public sealed record TruckItem(int Id, string FleetNumber, string? Model, string? Plate, int? DefaultDriverId, bool Active);
+    public sealed record DriverItem(int Id, string FullName, string? Phone, string EmploymentType, bool Active);
+    public sealed record GateItem(int Id, string Code, string Name, int? SiteId);
+    public sealed record SiteItem(int Id, string Code, string Name, string Kind, bool HasGeofence);
+
+    public Task<IReadOnlyList<TruckItem>> ListTrucksAsync(CancellationToken ct = default) =>
+        db.ReadAsync<IReadOnlyList<TruckItem>>(async conn => (await conn.QueryAsync<TruckItem>("""
+            SELECT t.id, t.fleet_number AS fleetnumber, t.model,
+                   (SELECT p.plate_text FROM tg.truck_plates p WHERE p.truck_id = t.id AND p.valid_to IS NULL
+                    ORDER BY p.valid_from DESC LIMIT 1) AS plate,
+                   t.default_driver_id AS defaultdriverid, t.active
+            FROM tg.trucks t ORDER BY t.id
+            """)).ToList(), ct);
+
+    public Task<IReadOnlyList<DriverItem>> ListDriversAsync(CancellationToken ct = default) =>
+        db.ReadAsync<IReadOnlyList<DriverItem>>(async conn => (await conn.QueryAsync<DriverItem>(
+            "SELECT id, full_name AS fullname, phone, employment_type AS employmenttype, active FROM tg.drivers ORDER BY id"))
+            .ToList(), ct);
+
+    public Task<IReadOnlyList<GateItem>> ListGatesAsync(CancellationToken ct = default) =>
+        db.ReadAsync<IReadOnlyList<GateItem>>(async conn => (await conn.QueryAsync<GateItem>(
+            "SELECT id::int AS id, code, name, site_id::int AS siteid FROM tg.gates ORDER BY id")).ToList(), ct);
+
+    public Task<IReadOnlyList<SiteItem>> ListSitesAsync(CancellationToken ct = default) =>
+        db.ReadAsync<IReadOnlyList<SiteItem>>(async conn => (await conn.QueryAsync<SiteItem>(
+            "SELECT id::int AS id, code, name, kind, geofence IS NOT NULL AS hasgeofence FROM tg.sites ORDER BY id"))
+            .ToList(), ct);
+
+    public Task<IReadOnlyList<UserListItem>> ListUsersAsync(CancellationToken ct = default) =>
+        db.ReadAsync<IReadOnlyList<UserListItem>>(async conn => (await conn.QueryAsync<UserListItem>("""
+            SELECT id, username, full_name AS fullname, role, language, active, pin_hash IS NOT NULL AS hassecret,
+                   last_login_at AS lastloginat, CASE WHEN locked_until > now() THEN locked_until END AS lockeduntil
+            FROM tg.users ORDER BY id
+            """)).ToList(), ct);
 
     // ------------------------------------------------------------------ drivers and trucks
 

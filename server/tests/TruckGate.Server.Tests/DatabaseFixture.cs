@@ -70,6 +70,13 @@ public sealed class DatabaseFixture : IAsyncLifetime
         return (admin, new Db(app));
     }
 
+    /// <summary>Same, plus the application connection string (to start the real web server on it).</summary>
+    public async Task<(Db Db, string AppConnection)> CreateIsolatedDatabaseForServerAsync()
+    {
+        var (_, app) = await CreateDatabaseAsync();
+        return (new Db(app), app.ConnectionString);
+    }
+
     private async Task<(NpgsqlDataSource Admin, NpgsqlDataSource App)> CreateDatabaseAsync()
     {
         var name = "tg_test_" + Guid.NewGuid().ToString("N")[..12];
