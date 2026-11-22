@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  vectors:
+    name: Spec vectors are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r ticket-spec/reference/requirements.txt
+      - run: python gen_vectors.py --check
+        working-directory: ticket-spec/reference
+
+  kotlin:
+    name: Kotlin ticket-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew :ticket-format:test --no-daemon
+        working-directory: quarry-app
+
+  dotnet:
+    name: C# TruckGate.Crypto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet test tests/TruckGate.Crypto.Tests --logger "console;verbosity=normal"
+        working-directory: server

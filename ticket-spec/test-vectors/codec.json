@@ -1,0 +1,111 @@
+{
+  "description": "Encode/decode vectors. Implementations must produce identical signed_hex, qr_text and short_code from fields, and decode ticket_hex back to fields.",
+  "public_keys_spki_b64": {
+    "quarry-1": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+    "quarry-2": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
+    "gate-1": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
+    "attacker": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEv85R+ukP99H3p9ZObfeG0IkW+nsjAXcn/g/l9m3yHOQ2sYO+IV25HpCU8CS5i19NvOx7CQ+GpA63OFckebmtAw=="
+  },
+  "cases": [
+    {
+      "name": "basic",
+      "fields": {
+        "kind": 1,
+        "device_id": 1,
+        "seq": 482,
+        "issued_at": 1795327200,
+        "clock_delta": 3,
+        "truck_id": 5,
+        "driver_id": 12,
+        "operator_id": 2,
+        "lat_e6": 35123456,
+        "lon_e6": -1234567,
+        "flags": 0,
+        "config_version": 7,
+        "photo_sha256": "b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc5"
+      },
+      "signer": "quarry-1",
+      "signed_hex": "01010001000001e26b0284e000030005000c00020217f100ffed2979000007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc5",
+      "signature_hex": "82cf294d0236cfd10fd89640dd0061d83ebabac74ce46ff938fb0413a2ff2ca71cba16d74570afb09ecb4ff98b403ae372fded372fc836ae750ee7ceec27e0d9",
+      "ticket_hex": "01010001000001e26b0284e000030005000c00020217f100ffed2979000007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc582cf294d0236cfd10fd89640dd0061d83ebabac74ce46ff938fb0413a2ff2ca71cba16d74570afb09ecb4ff98b403ae372fded372fc836ae750ee7ceec27e0d9",
+      "qr_text": "TG1:W50100000WA0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9R/ON8Q4X9 -6EJQ6HR0987208FRCRNZ8PO*SZMV0XVVL2TBWU5LSNNT9R2BEYEMRVPSOVH58-XSP4W./6:DPL2MZ*177Q%15$4",
+      "short_code": "1K4-7JJ",
+      "ticket_id": "Q1-000482"
+    },
+    {
+      "name": "flags_driver_changed_no_gps",
+      "fields": {
+        "kind": 1,
+        "device_id": 1,
+        "seq": 1,
+        "issued_at": 1795327200,
+        "clock_delta": 0,
+        "truck_id": 5,
+        "driver_id": 12,
+        "operator_id": 2,
+        "lat_e6": 0,
+        "lon_e6": 0,
+        "flags": 5,
+        "config_version": 7,
+        "photo_sha256": "b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc5"
+      },
+      "signer": "quarry-1",
+      "signed_hex": "01010001000000016b0284e000000005000c00020000000000000000050007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc5",
+      "signature_hex": "7db6e596ca286b65e7aba75983413b39bcb982b001787cb17c063fddac2c189553a9380816ec48ce800a9672190630cb81f2912ea1100e8d1e508dff946b5393",
+      "ticket_hex": "01010001000000016b0284e000000005000c00020000000000000000050007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc57db6e596ca286b65e7aba75983413b39bcb982b001787cb17c063fddac2c189553a9380816ec48ce800a9672190630cb81f2912ea1100e8d1e508dff946b5393",
+      "qr_text": "TG1:W50100000100YND-ZG000500C00200000000000000KS0%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9M/OL5N$2J.45W*CNVLAEB4B8KD7FKNCBMJAFVJMOZ031S%P5M*IUHL0118*TY4QAF14JE9Z0WWP.TUC+5F12 $HB8A/DWPPDC3",
+      "short_code": "BNG-0DX",
+      "ticket_id": "Q1-000001"
+    },
+    {
+      "name": "negative_values_and_max_ints",
+      "fields": {
+        "kind": 1,
+        "device_id": 2,
+        "seq": 4294967295,
+        "issued_at": 1795327200,
+        "clock_delta": -32768,
+        "truck_id": 65535,
+        "driver_id": 65535,
+        "operator_id": 65535,
+        "lat_e6": -90000000,
+        "lon_e6": 180000000,
+        "flags": 0,
+        "config_version": 65535,
+        "photo_sha256": "ea2a66260a4b13888b61aa873a87898b9507842bdbb14ce8018d7bf36c7f06ec"
+      },
+      "signer": "quarry-2",
+      "signed_hex": "01010002ffffffff6b0284e08000fffffffffffffaa2b5800aba950000ffffea2a66260a4b13888b61aa873a87898b9507842bdbb14ce8018d7bf36c7f06ec",
+      "signature_hex": "6073b386e357cdaa41431d071e3474fec3b000dbe94993d2edf618795781c59f7e8cc05c58cf21f40ef8a63280577cfd4766f6922ba29e433b5196bebd51c88c",
+      "ticket_hex": "01010002ffffffff6b0284e08000fffffffffffffaa2b5800aba950000ffffea2a66260a4b13888b61aa873a87898b9507842bdbb14ce8018d7bf36c7f06ec6073b386e357cdaa41431d071e3474fec3b000dbe94993d2edf618795781c59f7e8cc05c58cf21f40ef8a63280577cfd4766f6922ba29e433b5196bebd51c88c",
+      "qr_text": "TG1:W50200FGWFGWYND-ZG88GFGWFGWFGW$UVO.M1G1T$IU50*FW9G5I 44M9ZBHRFCD4H26H3THY.0MO5SIM%ET**H YUS2GW*T9SEG2HM4BPNL L8M+0IS6E9WBBM2 RPD9.TQ05VDFFBIGF7KWZHFUBF8QI%UOJVDH6V2B*0WX0DOLI5PKLM86EA45OBFA53",
+      "short_code": "X38-RC1",
+      "ticket_id": "Q2-4294967295"
+    },
+    {
+      "name": "decapage_kind_reserved",
+      "fields": {
+        "kind": 2,
+        "device_id": 1,
+        "seq": 900,
+        "issued_at": 1795327200,
+        "clock_delta": 3,
+        "truck_id": 5,
+        "driver_id": 12,
+        "operator_id": 2,
+        "lat_e6": 35123456,
+        "lon_e6": -1234567,
+        "flags": 0,
+        "config_version": 7,
+        "photo_sha256": "b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc5"
+      },
+      "signer": "quarry-1",
+      "signed_hex": "01020001000003846b0284e000030005000c00020217f100ffed2979000007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc5",
+      "signature_hex": "cc5288c14a992c83edf5b12e11b3561f8f9c191b9b8c4b10629a878a5d10d3269efc18197ef387316686f478996abedb678050cf7b7588354a8536d954f59ecd",
+      "ticket_hex": "01020001000003846b0284e000030005000c00020217f100ffed2979000007b5b8e141d88f810969dbe0eb00b33fdea60bdd04aa62b6365f78b3ab25494dc5cc5288c14a992c83edf5b12e11b3561f8f9c191b9b8c4b10629a878a5d10d3269efc18197ef387316686f478996abedb678050cf7b7588354a8536d954f59ecd",
+      "qr_text": "TG1:X501000000K0YND-ZG300500C00200+B01LU.FW.A5000%/0YGNQE8H6IO81%ZR+VTWTMS6SMM1OQ0PLCE*6TBFSSL0C9B0PNJARJOHGJNUGW2V3$5AUMO:31XJ2M35XH9324OJ6MHW52V*46*V1A3IZU1B6X2H3BFBMD7XR/9GFAQS%E7X6$$GGLRD2VP4",
+      "short_code": "RFT-GR1",
+      "ticket_id": "Q1-000900"
+    }
+  ]
+}
