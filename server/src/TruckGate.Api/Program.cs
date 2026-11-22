@@ -21,6 +21,11 @@ builder.Services.AddSingleton<Db>();
 builder.Services.AddSingleton<GateService>();
 builder.Services.AddSingleton<AdminService>();
 builder.Services.AddSingleton<AuditService>();
+builder.Services.AddSingleton(_ => ServerSigningKey.LoadOrCreate(
+    builder.Configuration["Signing:KeyPath"] ?? Path.Combine(builder.Environment.ContentRootPath, "data", "server-signing-key.pem")));
+builder.Services.AddSingleton(_ => EnrollmentOptions.Default(
+    builder.Configuration["Server:PublicUrl"] ?? throw new InvalidOperationException("Server:PublicUrl is required (the address phones use).")));
+builder.Services.AddSingleton<EnrollmentService>();
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
     o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
@@ -50,6 +55,7 @@ app.Use(async (ctx, next) =>
         {
             ErrorKind.NotFound => StatusCodes.Status404NotFound,
             ErrorKind.Conflict => StatusCodes.Status409Conflict,
+            ErrorKind.Unauthorized => StatusCodes.Status401Unauthorized,
             _ => StatusCodes.Status400BadRequest,
         };
         await ctx.Response.WriteAsJsonAsync(new { error = e.Code, message = e.Message });
@@ -118,6 +124,41 @@ admin.MapPut("/trucks/{id:int}/active", async (int id, ActiveRequest r, AdminSer
     return Results.NoContent();
 });
 
+admin.MapPut("/sites/{id:int}/geofence", async (int id, GeofenceRequest r, AdminService svc, HttpContext ctx,
+        CancellationToken ct) =>
+{
+    await svc.SetSiteGeofenceAsync(id, r.Points, ActorOf(ctx), ct);
+    return Results.NoContent();
+});
+admin.MapPut("/users/{id:int}/pin", async (int id, PinRequest r, AdminService svc, HttpContext ctx, CancellationToken ct) =>
+{
+    await svc.SetUserPinAsync(id, r.Pin, ActorOf(ctx), ct);
+    return Results.NoContent();
+});
+admin.MapPost("/enrollments", async (InviteRequest r, EnrollmentService svc, HttpContext ctx, CancellationToken ct) =>
+    Results.Ok(await svc.CreateInviteAsync(r.Label, ActorOf(ctx), ct)));
+
+// ------------------------------------------------------------------ phone endpoints (no user session)
+
+app.MapPost("/api/enroll", async (EnrollRequest req, EnrollmentService svc, CancellationToken ct) =>
+    Results.Ok(await svc.EnrollAsync(req, ct)));
+app.MapGet("/api/devices/{id:int}/config", async (int id, HttpContext ctx, EnrollmentService svc, CancellationToken ct) =>
+{
+    var headers = ReadDeviceAuth(ctx) ?? throw TruckGateException.Unauthorized("AUTH_MISSING", "Device signature headers are missing.");
+    if (headers.DeviceId != id) throw TruckGateException.Unauthorized("DEVICE_MISMATCH", "Signed device does not match the URL.");
+    await svc.AuthenticateAsync(headers, "GET", ctx.Request.Path.Value ?? "", [], ct);
+    return Results.Ok(await svc.GetSignedConfigAsync(id, ct));
+});
+
+static DeviceAuthHeaders? ReadDeviceAuth(HttpContext ctx)
+{
+    var h = ctx.Request.Headers;
+    if (!int.TryParse(h["X-TG-Device"].FirstOrDefault(), out var device)) return null;
+    if (!long.TryParse(h["X-TG-Time"].FirstOrDefault(), out var time)) return null;
+    var signature = h["X-TG-Signature"].FirstOrDefault();
+    return string.IsNullOrEmpty(signature) ? null : new DeviceAuthHeaders(device, time, signature);
+}
+
 var audit = app.MapGroup("/api/audit");
 audit.MapGet("/verify", async (AuditService svc, CancellationToken ct) => Results.Ok(await svc.VerifyAsync(ct)));
 audit.MapPost("/anchor", async (AuditService svc, HttpContext ctx, CancellationToken ct) =>
@@ -139,3 +180,6 @@ internal sealed record CreateDriverRequest(string FullName, string? Phone, strin
 internal sealed record CreateTruckRequest(int Id, string FleetNumber, string? Model, int? DefaultDriverId, string? Plate);
 internal sealed record PlateRequest(string Plate);
 internal sealed record ActiveRequest(bool Active);
+internal sealed record GeofenceRequest(int[][] Points);
+internal sealed record PinRequest(string Pin);
+internal sealed record InviteRequest(string Label);

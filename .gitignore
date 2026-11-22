@@ -34,3 +34,6 @@ storage/
 # OS
 .DS_Store
 Thumbs.db
+
+# Server signing key and runtime data
+server/src/TruckGate.Api/data/

@@ -84,6 +84,37 @@ public sealed class AdminService(Db db)
             """, new { username, fullName, role, language }, tx), ct), "USER_EXISTS");
     }
 
+    /// <summary>Quarry boundary, points as [lat_e6, lon_e6]. Phones refuse to issue tickets outside it.</summary>
+    public Task SetSiteGeofenceAsync(int siteId, IReadOnlyList<int[]> points, Actor actor, CancellationToken ct = default)
+    {
+        if (points.Count is < 3 or > 200)
+            throw TruckGateException.Validation("GEOFENCE_POINTS", "A geofence needs 3 to 200 points.");
+        if (points.Any(p => p is not { Length: 2 } || p[0] is < -90_000_000 or > 90_000_000 || p[1] is < -180_000_000 or > 180_000_000))
+            throw TruckGateException.Validation("GEOFENCE_RANGE", "Points must be [lat_e6, lon_e6] within valid ranges.");
+        var json = System.Text.Json.JsonSerializer.Serialize(points);
+        return db.InTransactionAsync(actor, async (conn, tx) =>
+        {
+            var n = await conn.ExecuteAsync("UPDATE tg.sites SET geofence = CAST(@json AS jsonb) WHERE id = @siteId",
+                new { json, siteId }, tx);
+            if (n == 0) throw TruckGateException.NotFound("SITE_NOT_FOUND", $"Site {siteId} does not exist.");
+            return 0;
+        }, ct);
+    }
+
+    /// <summary>Sets a user's PIN (only its PBKDF2 hash is stored; never written to the audit log).</summary>
+    public Task SetUserPinAsync(int userId, string pin, Actor actor, CancellationToken ct = default)
+    {
+        var hash = PinHasher.Hash(pin);
+        return db.InTransactionAsync(actor, async (conn, tx) =>
+        {
+            var n = await conn.ExecuteAsync(
+                "UPDATE tg.users SET pin_hash = @hash, pin_set_at = now() WHERE id = @userId AND active",
+                new { hash, userId }, tx);
+            if (n == 0) throw TruckGateException.NotFound("USER_NOT_FOUND", $"Active user {userId} does not exist.");
+            return 0;
+        }, ct);
+    }
+
     // ------------------------------------------------------------------ drivers and trucks
 
     public Task<int> CreateDriverAsync(string fullName, string? phone, string employmentType, Actor actor,

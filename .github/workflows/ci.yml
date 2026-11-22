@@ -19,7 +19,7 @@ jobs:
         working-directory: ticket-spec/reference
 
   kotlin:
-    name: Kotlin ticket-format
+    name: Kotlin (ticket-format, quarry-core, Android app)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,8 +28,13 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew :ticket-format:test --no-daemon
+      - run: ./gradlew :ticket-format:test :quarry-core:test :app:assembleDebug --no-daemon --stacktrace
         working-directory: quarry-app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: truckgate-quarry-debug-apk
+          path: quarry-app/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
 
   dotnet:
     name: C# server (crypto + PostgreSQL integration)
