@@ -121,7 +121,7 @@ public sealed class QuarryPhone(int deviceId) : IDisposable
 {
     private readonly ECDsa _key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
 
-    public int DeviceId { get; } = deviceId;
+    public int DeviceId { get; set; } = deviceId;
     public byte[] PublicKey => _key.ExportSubjectPublicKeyInfo();
 
     public string Ticket(long seq, int truckId, int driverId, long issuedAt, byte flags = 0, int? claimDeviceId = null)

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The factory server is on the local network without TLS. Integrity does not depend on the
+     transport: the configuration is signed by the server and tickets are signed by the phone. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

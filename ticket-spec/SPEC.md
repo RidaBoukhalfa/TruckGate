@@ -130,12 +130,19 @@ Nothing is ever discarded: every scan, including REJECT, is stored with its snap
 - **Android Keystore** returns DER signatures; the app converts them to raw `r‖s` before encoding.
   Signatures from Keystore are randomized; the vectors use RFC 6979 only to be reproducible.
 
-## 8. Gate receipt (draft — implemented in step 4)
+## 8. Void record (quarry phone)
+
+An operator can void a ticket on the phone (reason required, fingerprint required). The phone signs,
+with the **ticket key**, the UTF-8 text `TGVOID1|<ticket id>|<unix seconds>|<reason>` and stores the
+raw `r‖s` signature. Void records are uploaded with sync (step 6); the server then stores a `VOIDED`
+ticket event and the gate rejects the ticket with `VOIDED`. A void never deletes the ticket.
+
+## 9. Gate receipt (draft — implemented in step 4)
 
 Printed by the gate for the driver and scanned again at exit. Same conventions, prefix `TR1:`,
 `kind = 0x10`, signed by the gate-station key. Layout will be fixed in step 4 and added to the vectors.
 
-## 9. Conformance
+## 10. Conformance
 
 Every implementation must pass all files in `test-vectors/`:
 
