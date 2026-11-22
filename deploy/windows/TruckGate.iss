@@ -263,6 +263,8 @@ end;
 function TestServer(U: String): String;
 var
   Req: Variant;
+  Status: Integer;
+  Body: String;
 begin
   Result := '';
   try
@@ -270,9 +272,11 @@ begin
     Req.SetTimeouts(4000, 4000, 4000, 6000);
     Req.Open('GET', StripSlash(U) + '/health', False);
     Req.Send('');
-    if Req.Status = 503 then Result := CustomMessage('UrlDbDown')
-    else if (Req.Status <> 200) or (Pos('"truckgate"', Req.ResponseText) = 0) then
-      Result := FmtMessage(CustomMessage('UrlNotTruckGate'), [IntToStr(Req.Status)]);
+    Status := Req.Status;
+    Body := Req.ResponseText;
+    if Status = 503 then Result := CustomMessage('UrlDbDown')
+    else if (Status <> 200) or (Pos('"truckgate"', Body) = 0) then
+      Result := FmtMessage(CustomMessage('UrlNotTruckGate'), [IntToStr(Status)]);
   except
     Result := GetExceptionMessage;
   end;
