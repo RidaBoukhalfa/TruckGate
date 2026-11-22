@@ -56,6 +56,9 @@ object Keys {
 class Store private constructor(context: Context) : SQLiteOpenHelper(context, "quarry.db", null, 2) {
 
     companion object {
+        private const val SELECT = "SELECT seq, ticket_id, truck_id, driver_id, operator_id, issued_at, flags, bytes, " +
+            "qr_text, short_code, print_count, voided_at, void_reason FROM tickets "
+
         @Volatile private var instance: Store? = null
 
         fun get(context: Context): Store =
@@ -236,9 +239,4 @@ class Store private constructor(context: Context) : SQLiteOpenHelper(context, "q
 
     private fun longQuery(sql: String, vararg args: String): Long? =
         readableDatabase.rawQuery(sql, args).use { if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else null }
-
-    private companion object {
-        const val SELECT = "SELECT seq, ticket_id, truck_id, driver_id, operator_id, issued_at, flags, bytes, " +
-            "qr_text, short_code, print_count, voided_at, void_reason FROM tickets "
-    }
 }
