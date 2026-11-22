@@ -140,14 +140,25 @@ public sealed class QuarryPhone(int deviceId) : IDisposable
     public int DeviceId { get; set; } = deviceId;
     public byte[] PublicKey => _key.ExportSubjectPublicKeyInfo();
 
-    public string Ticket(long seq, int truckId, int driverId, long issuedAt, byte flags = 0, int? claimDeviceId = null)
+    public string Ticket(long seq, int truckId, int driverId, long issuedAt, byte flags = 0, int? claimDeviceId = null,
+        byte[]? photoSha256 = null, int operatorId = 1) =>
+        TicketCodec.ToQrText(TicketBytes(seq, truckId, driverId, issuedAt, flags, claimDeviceId, photoSha256, operatorId));
+
+    public byte[] TicketBytes(long seq, int truckId, int driverId, long issuedAt, byte flags = 0, int? claimDeviceId = null,
+        byte[]? photoSha256 = null, int operatorId = 1)
     {
         var fields = new TicketFields(TicketFields.KindTransport, (ushort)(claimDeviceId ?? DeviceId), (uint)seq,
-            (uint)issuedAt, 0, (ushort)truckId, (ushort)driverId, 1, 35_000_000, -1_000_000, flags, 1, new byte[32]);
+            (uint)issuedAt, 0, (ushort)truckId, (ushort)driverId, (ushort)operatorId, 35_000_000, -1_000_000, flags, 1,
+            photoSha256 ?? new byte[32]);
         var signed = TicketCodec.EncodeSignedPart(fields);
-        var signature = _key.SignData(signed, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
-        return TicketCodec.ToQrText(signed.Concat(signature).ToArray());
+        return signed.Concat(Sign(signed)).ToArray();
     }
+
+    public byte[] Sign(byte[] data) =>
+        _key.SignData(data, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+
+    public string SignVoidB64(string ticketId, long at, string reason) =>
+        Convert.ToBase64String(Sign(VoidRecord.Message(ticketId, at, reason)));
 
     public void Dispose() => _key.Dispose();
 }

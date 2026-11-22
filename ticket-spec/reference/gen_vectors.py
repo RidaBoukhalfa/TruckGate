@@ -28,6 +28,7 @@ KEYS = {
     "quarry-2": t.test_private_key("quarry-2"),
     "gate-1": t.test_private_key("gate-1"),
     "attacker": t.test_private_key("attacker"),
+    "server-1": t.test_private_key("server-1"),
 }
 
 
@@ -271,6 +272,80 @@ def policy_vectors() -> dict:
     }
 
 
+# ------------------------------------------------------------------ void records (§8)
+
+
+def void_vectors() -> dict:
+    cases = []
+    for name, tid, at, reason in [
+        ("latin", "Q1-000482", T0 + 300, "printer jam"),
+        ("arabic", "Q1-000483", T0 + 900, "الشاحنة تعطلت"),
+        ("trimmed", "Q2-000001", T0 + 60, "  wrong truck  "),
+    ]:
+        msg = t.void_message(tid, at, reason)
+        cases.append({
+            "name": name, "ticket_id": tid, "at": at, "reason": reason,
+            "message_hex": msg.hex(),
+            "signature_hex": t.sign(KEYS["quarry-1"], msg).hex(),
+            "signer": "quarry-1",
+            "valid_for": {"quarry-1": True, "quarry-2": False},
+        })
+    return {
+        "description": "Void record: TGVOID1|ticket id|unix s|reason (trimmed, UTF-8), signed by the ticket key",
+        "public_keys_spki_b64": {k: b64(spki(k)) for k in ("quarry-1", "quarry-2")},
+        "cases": cases,
+    }
+
+
+# ------------------------------------------------------------------ gate receipts (§9)
+
+
+def receipt_vectors() -> dict:
+    def rf(**kw) -> t.ReceiptFields:
+        base = dict(trip_id=123, gate_id=1, entered_at=T0 + 1200, truck_id=5, ticket_device_id=1,
+                    ticket_seq=482, load=t.LOAD_FULL)
+        base.update(kw)
+        return t.ReceiptFields(**base)
+
+    valid = []
+    for name, f in [
+        ("basic", rf()),
+        ("partial_load", rf(trip_id=4_000_000_000, load=t.LOAD_PARTIAL, truck_id=65535, ticket_seq=4_294_967_295)),
+        ("unknown_load", rf(trip_id=1, gate_id=2, load=t.LOAD_UNKNOWN)),
+    ]:
+        r = t.build_receipt(KEYS["server-1"], f)
+        valid.append({
+            "name": name, "fields": dataclasses.asdict(f), "trip_number": f.trip_number,
+            "receipt_hex": r.hex(), "qr_text": t.receipt_to_qr_text(r),
+        })
+
+    good = t.build_receipt(KEYS["server-1"], rf())
+    forged = t.build_receipt(KEYS["attacker"], rf())
+    signed = good[:t.RECEIPT_SIGNED_LEN]
+    malformed = [
+        ("ticket_prefix", "TG1:" + t.base45_encode(good)),
+        ("too_short", t.receipt_to_qr_text(good[:-1])),
+        ("too_long", t.receipt_to_qr_text(good + b"\x00")),
+        ("bad_version", t.receipt_to_qr_text(bytes([2]) + good[1:])),
+        ("ticket_kind", t.receipt_to_qr_text(bytes([1, t.KIND_TRANSPORT]) + good[2:])),
+        ("bad_load", t.receipt_to_qr_text(signed[:-1] + bytes([4]) + good[t.RECEIPT_SIGNED_LEN:])),
+        ("lowercase", t.receipt_to_qr_text(good).lower()),
+    ]
+    for _, qr in malformed:
+        try:
+            t.decode_receipt(t.receipt_from_qr_text(qr))
+            raise AssertionError("malformed receipt decoded")
+        except t.TicketFormatError:
+            pass
+    return {
+        "description": "Gate receipt TR1: 85 bytes, signed by the server key. Decoders must reject the malformed cases.",
+        "server_key_spki_b64": b64(spki("server-1")),
+        "valid": valid,
+        "forged": {"qr_text": t.receipt_to_qr_text(forged), "signer": "attacker"},
+        "malformed": [{"name": n, "qr_text": q} for n, q in malformed],
+    }
+
+
 # ------------------------------------------------------------------ main
 
 
@@ -280,6 +355,8 @@ def main() -> int:
         "signature.json": signature_vectors(),
         "malformed.json": malformed_vectors(),
         "policy.json": policy_vectors(),
+        "void.json": void_vectors(),
+        "receipt.json": receipt_vectors(),
     }
     check = "--check" in sys.argv
     OUT.mkdir(parents=True, exist_ok=True)

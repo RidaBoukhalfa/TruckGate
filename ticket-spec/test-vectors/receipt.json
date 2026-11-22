@@ -1,0 +1,85 @@
+{
+  "description": "Gate receipt TR1: 85 bytes, signed by the server key. Decoders must reject the malformed cases.",
+  "server_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEoDoWRO1ZQ2/tHw9Fv/b2EZcBeba4DJ6JQsk4YRqPtxdQ2YUPxxKpy1oHxzs1zAvYQq5Rsi9oIWFKd0DgJZukDw==",
+  "valid": [
+    {
+      "name": "basic",
+      "fields": {
+        "trip_id": 123,
+        "gate_id": 1,
+        "entered_at": 1795328400,
+        "truck_id": 5,
+        "ticket_device_id": 1,
+        "ticket_seq": 482,
+        "load": 1
+      },
+      "trip_number": "T-000123",
+      "receipt_hex": "01100000007b00016b02899000050001000001e201a65b286e64e7e5cdce8c88c7746c49bd31f4689df68feed587dc720dbf4ee7137a268346b3770525aa42a29aa510b1648eca89f175ddee4b3f148f51d8f65359",
+      "qr_text": "TR1:260000X20100YNDQHH500100000WA0H90QNB0/DAET 0QLYHU9P1VDD-NI+US/J 8IX:Q4*R9X1*/9 K24*49.842FCY43J8YOJ/422WC9RPSNUO2S3N9/Q2RFAE6V:1"
+    },
+    {
+      "name": "partial_load",
+      "fields": {
+        "trip_id": 4000000000,
+        "gate_id": 1,
+        "entered_at": 1795328400,
+        "truck_id": 65535,
+        "ticket_device_id": 1,
+        "ticket_seq": 4294967295,
+        "load": 2
+      },
+      "trip_number": "T-4000000000",
+      "receipt_hex": "0110ee6b280000016b028990ffff0001ffffffff022f57e7d65c845a49358ac10bef3f1fb869aad29325449f8b5e97637971b89a61c098b6794156b02425cbbae0423627a8bce96e47bad77053949caeb9a718898a",
+      "qr_text": "TR1:260F6UP25100YNDQHHFGW100FGWFGWJC035BL4R.WGLB9GOH+M14:74ENZQL4RIHU8%RHA6J*FF8FN4GCYDJ EF7/ASP4:XPZFS3%6-EL/MT239RARLPAF J7LNQ4333"
+    },
+    {
+      "name": "unknown_load",
+      "fields": {
+        "trip_id": 1,
+        "gate_id": 2,
+        "entered_at": 1795328400,
+        "truck_id": 5,
+        "ticket_device_id": 1,
+        "ticket_seq": 482,
+        "load": 0
+      },
+      "trip_number": "T-000001",
+      "receipt_hex": "01100000000100026b02899000050001000001e2007dc11d814afe24c0dc1333f4158b5893e994a3a5b95d3778011016e13ba47283efc672ad134162fc9482dae4e9316486e0e47c558148d887f19136efd1ed4d8d",
+      "qr_text": "TR1:260000100200YNDQHH500100000WA0Z20RIONFGZ5W7HOAJ2P%UWRHKVIQZIZ.KDZBV7FN12ELSNZKPUG.3PR*L/B8+-VIOGB.S:A6D2H$*SJ AI99G8H4GIDEU::T63"
+    }
+  ],
+  "forged": {
+    "qr_text": "TR1:260000X20100YNDQHH500100000WA0I80%253J79-J4-DXB23 U/GBS0GS3F:2V/%PY4914RIMBNN0WMBK89D%7OPOW9JGL9NW2R53UCK:01IGDY-T9RCZ6QW3UOOR:0",
+    "signer": "attacker"
+  },
+  "malformed": [
+    {
+      "name": "ticket_prefix",
+      "qr_text": "TG1:260000X20100YNDQHH500100000WA0H90QNB0/DAET 0QLYHU9P1VDD-NI+US/J 8IX:Q4*R9X1*/9 K24*49.842FCY43J8YOJ/422WC9RPSNUO2S3N9/Q2RFAE6V:1"
+    },
+    {
+      "name": "too_short",
+      "qr_text": "TR1:260000X20100YNDQHH500100000WA0H90QNB0/DAET 0QLYHU9P1VDD-NI+US/J 8IX:Q4*R9X1*/9 K24*49.842FCY43J8YOJ/422WC9RPSNUO2S3N9/Q2RFAE6V"
+    },
+    {
+      "name": "too_long",
+      "qr_text": "TR1:260000X20100YNDQHH500100000WA0H90QNB0/DAET 0QLYHU9P1VDD-NI+US/J 8IX:Q4*R9X1*/9 K24*49.842FCY43J8YOJ/422WC9RPSNUO2S3N9/Q2RFAE6VEBB"
+    },
+    {
+      "name": "bad_version",
+      "qr_text": "TR1:XB0000X20100YNDQHH500100000WA0H90QNB0/DAET 0QLYHU9P1VDD-NI+US/J 8IX:Q4*R9X1*/9 K24*49.842FCY43J8YOJ/422WC9RPSNUO2S3N9/Q2RFAE6V:1"
+    },
+    {
+      "name": "ticket_kind",
+      "qr_text": "TR1:W50000X20100YNDQHH500100000WA0H90QNB0/DAET 0QLYHU9P1VDD-NI+US/J 8IX:Q4*R9X1*/9 K24*49.842FCY43J8YOJ/422WC9RPSNUO2S3N9/Q2RFAE6V:1"
+    },
+    {
+      "name": "bad_load",
+      "qr_text": "TR1:260000X20100YNDQHH500100000WA0KQ0QNB0/DAET 0QLYHU9P1VDD-NI+US/J 8IX:Q4*R9X1*/9 K24*49.842FCY43J8YOJ/422WC9RPSNUO2S3N9/Q2RFAE6V:1"
+    },
+    {
+      "name": "lowercase",
+      "qr_text": "tr1:260000x20100yndqhh500100000wa0h90qnb0/daet 0qlyhu9p1vdd-ni+us/j 8ix:q4*r9x1*/9 k24*49.842fcy43j8yoj/422wc9rpsnuo2s3n9/q2rfae6v:1"
+    }
+  ]
+}

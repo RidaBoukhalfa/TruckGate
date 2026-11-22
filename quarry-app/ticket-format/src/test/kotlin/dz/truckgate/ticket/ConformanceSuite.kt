@@ -27,7 +27,7 @@ class ConformanceSuite(private val vectorsDir: File) {
     private fun cases(file: String) = load(file)["cases"] as List<Map<String, Any?>>
 
     fun runAll(): ConformanceSuite {
-        codec(); signatures(); malformed(); issuanceRoundTrip(); derConversion()
+        codec(); signatures(); malformed(); voids(); issuanceRoundTrip(); derConversion()
         return this
     }
 
@@ -75,6 +75,21 @@ class ConformanceSuite(private val vectorsDir: File) {
                 TicketCodec.decode(TicketCodec.fromQrText(c["qr_text"] as String)); false
             } catch (e: TicketFormatException) { true }
             check("malformed/${c["name"]}", rejected)
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun voids() {
+        val keys = load("void.json")["public_keys_spki_b64"] as Map<String, String>
+        for (c in cases("void.json")) {
+            val name = "void/${c["name"]}"
+            val msg = VoidRecord.message(c["ticket_id"] as String, c["at"] as Long, c["reason"] as String)
+            check("$name/message", msg.toHex() == c["message_hex"]) { msg.toHex() }
+            val sig = hex(c["signature_hex"] as String)
+            for ((label, expected) in c["valid_for"] as Map<String, Any?>) {
+                val ok = EcdsaP256.verify(Base64.getDecoder().decode(keys[label]), msg, sig)
+                check("$name/$label", ok == expected) { "got $ok" }
+            }
         }
     }
 

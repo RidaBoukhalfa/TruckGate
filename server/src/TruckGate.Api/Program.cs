@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Npgsql;
 using TruckGate.Api;
 using TruckGate.Application;
+using TruckGate.Application.Alerts;
 using TruckGate.Application.Cameras;
 using TruckGate.Data;
 
@@ -34,6 +35,23 @@ builder.Services.AddSingleton(sp => new CameraService(sp.GetRequiredService<Db>(
 builder.Services.AddSingleton(_ => EnrollmentOptions.Default(
     builder.Configuration["Server:PublicUrl"] ?? throw new InvalidOperationException("Server:PublicUrl is required (the address phones use).")));
 builder.Services.AddSingleton<EnrollmentService>();
+builder.Services.AddSingleton<ExitService>();
+builder.Services.AddSingleton<ReviewService>();
+builder.Services.AddSingleton<SyncService>();
+builder.Services.AddSingleton<ReportService>();
+builder.Services.AddSingleton<SettingsService>();
+builder.Services.AddSingleton<Watchdog>();
+builder.Services.AddHttpClient("telegram", http => http.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddSingleton<ITelegramSender>(sp => new TelegramSender(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient("telegram"),
+    builder.Configuration["Telegram:BaseUrl"] ?? "https://api.telegram.org"));
+builder.Services.AddSingleton<ISmsSender, SerialSmsSender>();
+builder.Services.AddSingleton<AlertService>();
+if (builder.Configuration["Background:Disabled"] != "true")
+{
+    builder.Services.AddHostedService<WatchdogHost>();
+    builder.Services.AddHostedService<AlertDispatchHost>();
+}
 
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
@@ -75,7 +93,12 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(Policies.Gate, p => p.RequireRole("GATEKEEPER", "SUPERVISOR", "ADMIN"))
     .AddPolicy(Policies.Admin, p => p.RequireRole("ADMIN"))
     .AddPolicy(Policies.Audit, p => p.RequireRole("ADMIN", "MANAGER", "AUDITOR"))
-    .AddPolicy(Policies.Evidence, p => p.RequireRole("GATEKEEPER", "SUPERVISOR", "ADMIN", "MANAGER", "AUDITOR"));
+    .AddPolicy(Policies.Evidence, p => p.RequireRole("GATEKEEPER", "SUPERVISOR", "ADMIN", "MANAGER", "AUDITOR"))
+    .AddPolicy(Policies.Review, p => p.RequireRole("SUPERVISOR", "ADMIN"))
+    .AddPolicy(Policies.Alerts, p => p.RequireRole("SUPERVISOR", "ADMIN", "MANAGER"))
+    .AddPolicy(Policies.Reports, p => p.RequireRole("SUPERVISOR", "ADMIN", "MANAGER", "ACCOUNTANT", "AUDITOR"))
+    .AddPolicy(Policies.Pay, p => p.RequireRole("ACCOUNTANT", "ADMIN", "MANAGER"))
+    .AddPolicy(Policies.PayWrite, p => p.RequireRole("ACCOUNTANT", "ADMIN"));
 
 var app = builder.Build();
 
@@ -145,6 +168,10 @@ app.MapAuthEndpoints();
 app.MapGateEndpoints();
 app.MapAdminEndpoints();
 app.MapPhoneEndpoints();
+app.MapExitEndpoints();
+app.MapReviewEndpoints();
+app.MapAlertEndpoints();
+app.MapReportEndpoints();
 app.MapFallbackToFile("index.html");
 
 await app.RunAsync();

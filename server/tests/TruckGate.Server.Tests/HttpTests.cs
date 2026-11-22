@@ -40,6 +40,7 @@ public class HttpTests(DatabaseFixture fx)
         Environment.SetEnvironmentVariable("ConnectionStrings__Owner", "");
         Environment.SetEnvironmentVariable("Server__PublicUrl", "http://test.local:5080");
         Environment.SetEnvironmentVariable("Data__Directory", dataDir);
+        Environment.SetEnvironmentVariable("Background__Disabled", "true");
 
         // reference data
         var admin = new AdminService(db);
@@ -111,9 +112,41 @@ public class HttpTests(DatabaseFixture fx)
         var decision = await Json(await Post(client, $"/api/gate/scans/{scanId}/decision", new { decision = "FULL" }));
         Assert.Equal("ENTERED", decision.GetProperty("state").GetString());
 
+        // receipt for the driver, scanned in the same box at exit (pictures again)
+        var tripId = scan.GetProperty("scan").GetProperty("tripId").GetInt64();
+        var receipt = await Json(await Post(client, $"/api/gate/trips/{tripId}/receipt", new { }));
+        Assert.StartsWith("TR1:", receipt.GetProperty("qrText").GetString());
+        Assert.Equal("05", receipt.GetProperty("fleetNumber").GetString());
+        var exit = await Json(await Post(client, "/api/gate/scan", new { gateId, qrText = receipt.GetProperty("qrText").GetString() }));
+        Assert.Equal("EXIT", exit.GetProperty("kind").GetString());
+        Assert.Equal("PENDING", exit.GetProperty("exit").GetProperty("outcome").GetString()); // seconds after entry
+        Assert.Equal("EXIT_TOO_SOON", exit.GetProperty("exit").GetProperty("reasons")[0].GetString());
+        Assert.Equal(4, exit.GetProperty("snapshots").GetArrayLength());
+        var exitScanId = exit.GetProperty("exit").GetProperty("scanId").GetInt64();
+        var exitDecision = await Json(await Post(client, $"/api/gate/exit/scans/{exitScanId}/decision", new { decision = "EMPTY" }));
+        Assert.Equal("PENDING_REVIEW", exitDecision.GetProperty("state").GetString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/review/queue")).StatusCode);
+        await Post(client, "/api/auth/logout", new { });
+
+        // the supervisor (here the admin) sees the trip, its pictures, and accepts it
+        await Json(await Post(client, "/api/auth/login", new { username = "boss", secret = "a-long-password" }));
+        var queue = await Json(await client.GetAsync("/api/review/queue"));
+        Assert.Contains(queue.EnumerateArray(), q => q.GetProperty("tripId").GetInt64() == tripId);
+        var detail = await Json(await client.GetAsync($"/api/trips/{tripId}"));
+        Assert.Equal(8, detail.GetProperty("snapshots").GetArrayLength());
+        Assert.Equal(2, detail.GetProperty("scans").GetArrayLength());
+        var firstPicture = detail.GetProperty("snapshots")[0].GetProperty("id").GetInt64();
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await Post(client, $"/api/review/snapshots/{firstPicture}/labels", new { type = "LOAD", value = "FULL" })).StatusCode);
+        var reviewed = await Json(await Post(client, $"/api/review/trips/{tripId}/decision", new { decision = "ACCEPT" }));
+        Assert.Equal("CLOSED", reviewed.GetProperty("state").GetString());
+        var dashboard = await Json(await client.GetAsync("/api/reports/dashboard"));
+        Assert.Equal(2, dashboard.GetProperty("entries").GetInt32());
+        Assert.Equal(1, dashboard.GetProperty("exits").GetInt32());
+
         // everything above is in the audit chain, attributed to the signed-in users
         var actor = await db.ReadAsync(c => Dapper.SqlMapper.ExecuteScalarAsync<string>(c,
-            "SELECT actor FROM tg.audit_log WHERE entity = 'gate_decisions' ORDER BY id DESC LIMIT 1"));
+            "SELECT actor FROM tg.audit_log WHERE entity = 'gate_decisions' ORDER BY id LIMIT 1"));
         Assert.Equal($"user:{keeper}", actor);
         Assert.True((await new AuditService(db).VerifyAsync()).Ok);
     }

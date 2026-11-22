@@ -53,101 +53,150 @@ public sealed class GateService(Db db)
         [GateReasons.WrongKind] = "MEDIUM",
     };
 
-    private static readonly HashSet<string> HighPriorityReasons = new(StringComparer.Ordinal)
-    {
-        GateReasons.IssuedInFuture, GateReasons.TooEarly, GateReasons.ClockMismatch,
-        GateReasons.IssuedBeforeRevocation, GateReasons.OutsideGeofence,
-        "GATE_EMPTY", "GATE_DIFFERENT_TRUCK",
-    };
-
     public Task<ScanEntryResult> ScanEntryAsync(ScanEntryRequest req, Actor actor, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(req.QrText) || req.QrText.Length > 512)
             throw TruckGateException.Validation("QR_INVALID", "Scanned text is empty or too long.");
 
+        return db.InTransactionAsync(actor, (conn, tx) =>
+            ScanTicketCoreAsync(conn, tx, req.GateId, req.QrText, "QUARRY_TICKET", req.QrText, req.GatekeeperId, manual: false), ct);
+    }
+
+    /// <summary>
+    /// Damaged QR: the gatekeeper types the ticket ID and the short code printed under it (SPEC §5).
+    /// Only a ticket already synced from the phone can be checked this way, and the result is never
+    /// better than PENDING.
+    /// </summary>
+    public Task<ScanEntryResult> ScanManualAsync(short gateId, string ticketId, string shortCode, int? gatekeeperId,
+        Actor actor, CancellationToken ct = default)
+    {
+        var id = (ticketId ?? "").Trim().ToUpperInvariant();
+        var code = NormalizeShortCode(shortCode ?? "");
+        if (id.Length is 0 or > 20 || code.Length != 6)
+            throw TruckGateException.Validation("MANUAL_INVALID", "Type the ticket number (Q1-000123) and the 6-character code.");
+        var raw = $"{id} {code[..3]}-{code[3..]}";
+
         return db.InTransactionAsync(actor, async (conn, tx) =>
         {
-            var gateExists = await conn.ExecuteScalarAsync<bool>(
-                "SELECT EXISTS (SELECT 1 FROM tg.gates WHERE id = @g)", new { g = (int)req.GateId }, tx);
-            if (!gateExists) throw TruckGateException.NotFound("GATE_NOT_FOUND", $"Gate {req.GateId} does not exist.");
-
-            // Server time is the only clock used for decisions.
-            long now = await conn.ExecuteScalarAsync<long>("SELECT extract(epoch FROM now())::bigint", transaction: tx);
-
-            var decoded = TryDecode(req.QrText);
-            var lookup = PreloadedLookup.Empty;
-            if (decoded is not null)
+            await EnsureGateAsync(conn, tx, gateId);
+            var stored = await conn.QuerySingleOrDefaultAsync<byte[]>(
+                "SELECT raw FROM tg.tickets WHERE ticket_id = @id", new { id }, tx);
+            if (stored is null || NormalizeShortCode(TicketCodec.ShortCode(stored)) != code)
             {
-                // Serialize concurrent scans of the same ticket and of the same truck (fixed order: no deadlock).
-                await LockAsync(conn, tx, "ticket:" + decoded.Fields.TicketId);
-                await LockAsync(conn, tx, "truck:" + decoded.Fields.TruckId);
-                lookup = await PreloadedLookup.LoadAsync(conn, tx, decoded.Fields);
+                var reason = stored is null ? "NO_SYNCED_COPY" : "BAD_SHORT_CODE";
+                long scanId = await InsertScanAsync(conn, tx, gateId, "ENTRY", "MANUAL_CODE", raw, null, null, "REJECT",
+                    [reason], [], gatekeeperId);
+                if (stored is not null)
+                    await InsertAlertAsync(conn, tx, "GATE_BAD_SHORT_CODE", "MEDIUM", "gate_scans", scanId.ToString(),
+                        new { ticket_id = id, gate_id = gateId });
+                return new ScanEntryResult(scanId, null, null, "REJECT", [reason], [], null);
             }
-
-            var parameters = await Settings.LoadGatePolicyAsync(conn, tx);
-            var result = GatePolicy.Evaluate(req.QrText, now, lookup, parameters);
-            var outcome = result.Outcome.ToString().ToUpperInvariant();
-            bool authentic = decoded is not null && !result.Reasons.Any(NotAuthentic.Contains);
-
-            if (authentic) await InsertTicketIfNewAsync(conn, tx, decoded!, "GATE");
-
-            long scanId = await conn.ExecuteScalarAsync<long>("""
-                INSERT INTO tg.gate_scans (gate_id, direction, scan_type, raw_text, ticket_device_id, ticket_seq,
-                                           outcome, reasons, notes, gatekeeper_id)
-                VALUES (@gate, 'ENTRY', 'QUARRY_TICKET', @raw, @dev, @seq, @outcome, @reasons, @notes, @gk)
-                RETURNING id
-                """,
-                new
-                {
-                    gate = (int)req.GateId,
-                    raw = req.QrText,
-                    dev = authentic ? (int?)decoded!.Fields.DeviceId : null,
-                    seq = authentic ? (long?)decoded!.Fields.Seq : null,
-                    outcome,
-                    reasons = result.Reasons.ToArray(),
-                    notes = result.Notes.ToArray(),
-                    gk = req.GatekeeperId,
-                }, tx);
-
-            long? tripId = null;
-            string? tripNumber = null;
-            if (result.Outcome != GateOutcome.Reject && authentic)
-            {
-                var f = decoded!.Fields;
-                var trip = await conn.QuerySingleAsync<(long Id, string Number)>("""
-                    INSERT INTO tg.trips (ticket_device_id, ticket_seq, truck_id, driver_id, entry_scan_id)
-                    VALUES (@dev, @seq, @truck, @driver, @scan)
-                    RETURNING id, trip_number
-                    """,
-                    new { dev = (int)f.DeviceId, seq = (long)f.Seq, truck = (int)f.TruckId, driver = (int)f.DriverId, scan = scanId },
-                    tx);
-                await conn.ExecuteAsync("""
-                    INSERT INTO tg.trip_state_events (trip_id, from_state, to_state, reason_code)
-                    VALUES (@t, NULL, 'AT_GATE', @r)
-                    """, new { t = trip.Id, r = "SCAN_" + outcome }, tx);
-                tripId = trip.Id;
-                tripNumber = trip.Number;
-            }
-
-            foreach (var reason in result.Reasons)
-            {
-                if (!AlertSeverity.TryGetValue(reason, out var severity)) continue;
-                await InsertAlertAsync(conn, tx, "GATE_" + reason, severity, "gate_scans", scanId.ToString(),
-                    new { ticket_id = result.TicketId, gate_id = req.GateId, reasons = result.Reasons });
-            }
-
-            TicketSummary? summary = null;
-            if (decoded is not null)
-            {
-                var f = decoded.Fields;
-                var bytes = decoded.SignedPart.Concat(decoded.Signature).ToArray();
-                summary = new TicketSummary(f.TicketId, f.DeviceId, f.Seq, f.TruckId, f.DriverId, f.OperatorId,
-                    f.IssuedAt, now - f.IssuedAt, f.Flags, TicketCodec.ShortCode(bytes));
-            }
-
-            return new ScanEntryResult(scanId, tripId, tripNumber, outcome, result.Reasons, result.Notes, summary);
+            return await ScanTicketCoreAsync(conn, tx, gateId, TicketCodec.ToQrText(stored), "MANUAL_CODE", raw, gatekeeperId, manual: true);
         }, ct);
     }
+
+    /// <summary>Crockford base32: upper case, no separators, O→0, I/L→1.</summary>
+    public static string NormalizeShortCode(string code) =>
+        new(code.ToUpperInvariant().Where(char.IsLetterOrDigit)
+            .Select(c => c switch { 'O' => '0', 'I' or 'L' => '1', _ => c }).ToArray());
+
+    private async Task<ScanEntryResult> ScanTicketCoreAsync(NpgsqlConnection conn, NpgsqlTransaction tx, short gateId,
+        string qrText, string scanType, string rawText, int? gatekeeperId, bool manual)
+    {
+        await EnsureGateAsync(conn, tx, gateId);
+
+        // Server time is the only clock used for decisions.
+        long now = await conn.ExecuteScalarAsync<long>("SELECT extract(epoch FROM now())::bigint", transaction: tx);
+
+        var decoded = TryDecode(qrText);
+        var lookup = PreloadedLookup.Empty;
+        if (decoded is not null)
+        {
+            // Serialize concurrent scans of the same ticket and of the same truck (fixed order: no deadlock).
+            await LockAsync(conn, tx, "ticket:" + decoded.Fields.TicketId);
+            await LockAsync(conn, tx, "truck:" + decoded.Fields.TruckId);
+            lookup = await PreloadedLookup.LoadAsync(conn, tx, decoded.Fields);
+        }
+
+        var parameters = await Settings.LoadGatePolicyAsync(conn, tx);
+        var result = GatePolicy.Evaluate(qrText, now, lookup, parameters);
+        var reasons = result.Reasons.ToList();
+        var outcome = result.Outcome;
+        if (manual && outcome != GateOutcome.Reject)
+        {
+            if (outcome == GateOutcome.Accept) reasons.Clear();
+            reasons.Add("MANUAL_ENTRY");
+            outcome = GateOutcome.Pending;
+        }
+        var outcomeText = outcome.ToString().ToUpperInvariant();
+        bool authentic = decoded is not null && !reasons.Any(NotAuthentic.Contains);
+
+        if (authentic) await InsertTicketIfNewAsync(conn, tx, decoded!, "GATE");
+
+        long scanId = await InsertScanAsync(conn, tx, gateId, "ENTRY", scanType, rawText,
+            authentic ? (int?)decoded!.Fields.DeviceId : null, authentic ? (long?)decoded!.Fields.Seq : null,
+            outcomeText, reasons, result.Notes, gatekeeperId);
+
+        long? tripId = null;
+        string? tripNumber = null;
+        if (outcome != GateOutcome.Reject && authentic)
+        {
+            var f = decoded!.Fields;
+            var trip = await conn.QuerySingleAsync<(long Id, string Number)>("""
+                INSERT INTO tg.trips (ticket_device_id, ticket_seq, truck_id, driver_id, entry_scan_id)
+                VALUES (@dev, @seq, @truck, @driver, @scan)
+                RETURNING id, trip_number
+                """,
+                new { dev = (int)f.DeviceId, seq = (long)f.Seq, truck = (int)f.TruckId, driver = (int)f.DriverId, scan = scanId },
+                tx);
+            await conn.ExecuteAsync("""
+                INSERT INTO tg.trip_state_events (trip_id, from_state, to_state, reason_code)
+                VALUES (@t, NULL, 'AT_GATE', @r)
+                """, new { t = trip.Id, r = "SCAN_" + outcomeText }, tx);
+            tripId = trip.Id;
+            tripNumber = trip.Number;
+        }
+
+        foreach (var reason in reasons)
+        {
+            if (!AlertSeverity.TryGetValue(reason, out var severity)) continue;
+            await InsertAlertAsync(conn, tx, "GATE_" + reason, severity, "gate_scans", scanId.ToString(),
+                new { ticket_id = result.TicketId, gate_id = gateId, reasons });
+        }
+
+        TicketSummary? summary = null;
+        if (decoded is not null)
+        {
+            var f = decoded.Fields;
+            var bytes = decoded.SignedPart.Concat(decoded.Signature).ToArray();
+            summary = new TicketSummary(f.TicketId, f.DeviceId, f.Seq, f.TruckId, f.DriverId, f.OperatorId,
+                f.IssuedAt, now - f.IssuedAt, f.Flags, TicketCodec.ShortCode(bytes));
+        }
+
+        return new ScanEntryResult(scanId, tripId, tripNumber, outcomeText, reasons, result.Notes, summary);
+    }
+
+    internal static async Task EnsureGateAsync(NpgsqlConnection conn, NpgsqlTransaction tx, short gateId)
+    {
+        var gateExists = await conn.ExecuteScalarAsync<bool>(
+            "SELECT EXISTS (SELECT 1 FROM tg.gates WHERE id = @g)", new { g = (int)gateId }, tx);
+        if (!gateExists) throw TruckGateException.NotFound("GATE_NOT_FOUND", $"Gate {gateId} does not exist.");
+    }
+
+    internal static Task<long> InsertScanAsync(NpgsqlConnection conn, NpgsqlTransaction tx, short gateId, string direction,
+        string scanType, string rawText, int? deviceId, long? seq, string outcome, IEnumerable<string> reasons,
+        IEnumerable<string> notes, int? gatekeeperId) =>
+        conn.ExecuteScalarAsync<long>("""
+            INSERT INTO tg.gate_scans (gate_id, direction, scan_type, raw_text, ticket_device_id, ticket_seq,
+                                       outcome, reasons, notes, gatekeeper_id)
+            VALUES (@gate, @direction, @scanType, @raw, @dev, @seq, @outcome, @reasons, @notes, @gk)
+            RETURNING id
+            """,
+            new
+            {
+                gate = (int)gateId, direction, scanType, raw = rawText, dev = deviceId, seq, outcome,
+                reasons = reasons.ToArray(), notes = notes.ToArray(), gk = gatekeeperId,
+            }, tx);
 
     public Task<EntryDecisionResult> RecordEntryDecisionAsync(long scanId, EntryDecision decision, string? note,
         int? decidedBy, Actor actor, CancellationToken ct = default)
@@ -195,17 +244,13 @@ public sealed class GateService(Db db)
             if (reasons.Count == 0)
             {
                 state = "ENTERED";
-                await InsertStateEventAsync(conn, tx, trip.Id, "AT_GATE", state, "GATE_" + dbDecision, note);
+                await Trips.TransitionAsync(conn, tx, trip.Id, "AT_GATE", state, "GATE_" + dbDecision, note);
             }
             else
             {
                 state = "PENDING_REVIEW";
-                await InsertStateEventAsync(conn, tx, trip.Id, "AT_GATE", state, reasons[0], note);
-                var priority = reasons.Any(HighPriorityReasons.Contains) ? "HIGH" : "NORMAL";
-                reviewId = await conn.ExecuteScalarAsync<long>("""
-                    INSERT INTO tg.reviews (trip_id, reason_codes, priority) VALUES (@trip, @reasons, @priority)
-                    RETURNING id
-                    """, new { trip = trip.Id, reasons = reasons.ToArray(), priority }, tx);
+                await Trips.TransitionAsync(conn, tx, trip.Id, "AT_GATE", state, reasons[0], note);
+                reviewId = await Trips.OpenReviewAsync(conn, tx, trip.Id, reasons);
             }
 
             if (decision == EntryDecision.DifferentTruck)
@@ -214,6 +259,9 @@ public sealed class GateService(Db db)
             else if (decision == EntryDecision.Empty)
                 await InsertAlertAsync(conn, tx, "GATE_EMPTY_ON_ENTRY", "MEDIUM", "trips", trip.Id.ToString(),
                     new { trip_number = trip.TripNumber, scan_id = scanId });
+
+            if (decision == EntryDecision.Partial)
+                await Watchdog.CheckRepeatedPartialsAsync(conn, tx, trip.Id);
 
             return new EntryDecisionResult(trip.Id, trip.TripNumber, state, load, reviewId, reasons);
         }, ct);
@@ -266,18 +314,12 @@ public sealed class GateService(Db db)
             }, tx);
     }
 
-    private static Task InsertStateEventAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long tripId,
-        string from, string to, string reason, string? note) =>
-        conn.ExecuteAsync("""
-            INSERT INTO tg.trip_state_events (trip_id, from_state, to_state, reason_code, note)
-            VALUES (@trip, @from, @to, @reason, @note)
-            """, new { trip = tripId, from, to, reason, note }, tx);
-
-    internal static Task InsertAlertAsync(NpgsqlConnection conn, NpgsqlTransaction tx, string type, string severity,
+    internal static Task<long> InsertAlertAsync(NpgsqlConnection conn, NpgsqlTransaction tx, string type, string severity,
         string entity, string entityId, object parameters) =>
-        conn.ExecuteAsync("""
+        conn.ExecuteScalarAsync<long>("""
             INSERT INTO tg.alerts (type, severity, entity, entity_id, params)
             VALUES (@type, @severity, @entity, @entityId, CAST(@params AS jsonb))
+            RETURNING id
             """,
             new { type, severity, entity, entityId, @params = JsonSerializer.Serialize(parameters) }, tx);
 

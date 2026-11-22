@@ -340,3 +340,76 @@ def test_private_key(label: str) -> ec.EllipticCurvePrivateKey:
     scalar = scalar % (P256_N - 1) + 1
     return ec.derive_private_key(scalar, ec.SECP256R1())
 
+
+
+# ---------------------------------------------------------------- void record (§8)
+
+
+def void_message(ticket_id: str, at: int, reason: str) -> bytes:
+    """Text signed by the ticket key to void a ticket: TGVOID1|<ticket id>|<unix s>|<reason>."""
+    if "|" in ticket_id or not reason.strip():
+        raise TicketFormatError("invalid void record")
+    return f"TGVOID1|{ticket_id}|{at}|{reason.strip()}".encode("utf-8")
+
+
+# ---------------------------------------------------------------- gate receipt (§9)
+
+RECEIPT_KIND = 0x10
+RECEIPT_SIGNED_LEN = 21
+RECEIPT_LEN = RECEIPT_SIGNED_LEN + SIGNATURE_LEN  # 85
+RECEIPT_PREFIX = "TR1:"
+LOAD_UNKNOWN, LOAD_FULL, LOAD_PARTIAL, LOAD_EMPTY = 0, 1, 2, 3
+
+_RECEIPT_LAYOUT = struct.Struct(">BBIHIHHIB")  # 21 bytes
+assert _RECEIPT_LAYOUT.size == RECEIPT_SIGNED_LEN
+
+
+@dataclass(frozen=True)
+class ReceiptFields:
+    trip_id: int            # u32
+    gate_id: int            # u16
+    entered_at: int         # unix seconds, server time of the entry scan
+    truck_id: int           # u16
+    ticket_device_id: int   # u16
+    ticket_seq: int         # u32
+    load: int               # 0 unknown, 1 full, 2 partial, 3 empty
+
+    @property
+    def trip_number(self) -> str:
+        return f"T-{self.trip_id:06d}"
+
+
+def encode_receipt_signed_part(r: ReceiptFields) -> bytes:
+    if r.load not in (LOAD_UNKNOWN, LOAD_FULL, LOAD_PARTIAL, LOAD_EMPTY):
+        raise TicketFormatError("unknown load value")
+    return _RECEIPT_LAYOUT.pack(FORMAT_VERSION, RECEIPT_KIND, r.trip_id, r.gate_id, r.entered_at,
+                                r.truck_id, r.ticket_device_id, r.ticket_seq, r.load)
+
+
+def build_receipt(server_key: ec.EllipticCurvePrivateKey, r: ReceiptFields) -> bytes:
+    signed = encode_receipt_signed_part(r)
+    return signed + sign(server_key, signed)
+
+
+def decode_receipt(receipt: bytes) -> tuple[ReceiptFields, bytes, bytes]:
+    if len(receipt) != RECEIPT_LEN:
+        raise TicketFormatError(f"length {len(receipt)} != {RECEIPT_LEN}")
+    signed, sig = receipt[:RECEIPT_SIGNED_LEN], receipt[RECEIPT_SIGNED_LEN:]
+    ver, kind, trip, gate, entered, truck, dev, seq, load = _RECEIPT_LAYOUT.unpack(signed)
+    if ver != FORMAT_VERSION:
+        raise TicketFormatError(f"unsupported version {ver}")
+    if kind != RECEIPT_KIND:
+        raise TicketFormatError(f"not a receipt (kind {kind})")
+    if load > LOAD_EMPTY:
+        raise TicketFormatError("unknown load value")
+    return ReceiptFields(trip, gate, entered, truck, dev, seq, load), signed, sig
+
+
+def receipt_to_qr_text(receipt: bytes) -> str:
+    return RECEIPT_PREFIX + base45_encode(receipt)
+
+
+def receipt_from_qr_text(text: str) -> bytes:
+    if not text.startswith(RECEIPT_PREFIX):
+        raise TicketFormatError("missing TR1: prefix")
+    return base45_decode(text[len(RECEIPT_PREFIX):])
