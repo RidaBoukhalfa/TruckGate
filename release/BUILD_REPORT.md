@@ -1,18 +1,19 @@
-# TruckGate 1.0.0 — Build report
+# TruckGate — Build report (server/installer 1.0.0, quarry app 1.0.1)
 
 | | |
 |---|---|
-| Build date | 2026-11-22, finished 12:49 UTC |
-| Source | commit `7eee6ece80bf6a0aaba855de156832f81fddf5be` (branch `step-5-exit-review-alerts`, pushed also as `release/v1.0.0`) |
-| Built by | GitHub Actions, workflow `.github/workflows/release.yml`, run 45023619540 — all 5 jobs green |
-| Published as | **draft** release `v1.0.0-build.8` (visible only to repository collaborators; not published) |
+| Build date | 2026-11-22, finished 15:02 UTC |
+| Source | commit `5a3125b0b58907d6277a6b96f32bf2cce8c76656` (branch `step-5-exit-review-alerts`, pushed also as `release/v1.0.0`) |
+| Built by | GitHub Actions, workflow `.github/workflows/release.yml`, run 45034786648 (attempt 2, see §5) — all 8 jobs green |
+| Published as | **draft** release `v1.0.0-build.10` (visible only to repository collaborators; not published) |
+| Replaces | build 8 (Android app 1.0.0, Android 11+ only: would not install on the first field phone, "There was a problem parsing the package") |
 
 ## 1. Files
 
 | File | Size | SHA-256 |
 |---|---|---|
-| `release/TruckGate-Quarry.apk` | 28,534,020 bytes | `0ffe4611fb4ba35fa7fbcbdbfec86709b317d328ad62d456f70015c62b6a296a` |
-| `release/TruckGate-Windows-Setup.exe` | 84,987,026 bytes | `e951aeb3f58c22cfd52aebf1e5691d7e65a140b4ed0d9356decceca017ded183` |
+| `release/TruckGate-Quarry.apk` | 11,889,636 bytes | `82c75c752d3bf830fbe90455fd3435197534c28caff4661cf8b315d880b3e23f` |
+| `release/TruckGate-Windows-Setup.exe` | 84,984,438 bytes | `920fa31c0e72c7bfceaae7285b767ee09081158ffcc7f9509b8e2994da288e83` |
 | `release/INSTALLATION_GUIDE.md` | — | (also inside the installer, `docs\`) |
 | `release/BUILD_REPORT.md` | — | this file |
 
@@ -22,9 +23,11 @@ Check on Windows: `Get-FileHash .\TruckGate-Windows-Setup.exe -Algorithm SHA256`
 
 ## 2. What is inside
 
-**Android APK** — package `dz.truckgate.quarry`, versionName **1.0.0**, versionCode 100, minSdk 30 (Android 11), targetSdk/compileSdk 35, native libraries for arm64-v8a, armeabi-v7a, x86, x86_64. **Debug build** (see §6): signed with the CI runner's Android debug key, v2 signature scheme, `debuggable=true`. Certificate SHA-256 `4274ffdfc7eae1b22651180f70f9261bbbe59ee7dc0046bf5202ca70f507bf9c`.
+**Android APK** — package `dz.truckgate.quarry`, versionName **1.0.1**, versionCode 101, **minSdk 26 (Android 8.0)**, targetSdk/compileSdk 35, native libraries for arm64-v8a, armeabi-v7a, x86, x86_64. **Debug build** (see §6): signed with the CI runner's Android debug key, v2 signature scheme, `debuggable=true`. Certificate SHA-256 `1c2a74996f58cc4d823f3c668d7ec4e33336e3b66ee4615dcf6f1da9c84fd818`. It is smaller than the 1.0.0 file (11.9 MB instead of 28.5 MB) only because the Android build tools store the code compressed when the app supports Android versions before 9; the content is the same plus the changes below.
 
-**Windows installer** — Inno Setup 6.7.1; the setup program is a 32-bit (x86) loader that refuses non-x64 Windows and installs 64-bit files (2,145 files for the server type). Not code-signed. Contents:
+Ticket signing on Android 8–10: the ticket key still needs a fingerprint for **every** signature. Android 11+ uses `setUserAuthenticationParameters(0, BIOMETRIC_STRONG)`; Android 8–10 use "authentication for every use" (validity −1), which before Android 11 only a fingerprint through the biometric prompt can unlock — the screen PIN cannot. Differences on older phones: StrongBox (a separate security chip) only from Android 9 and only on some phones; a phone that cannot produce a key attestation certificate still creates the key in Android Keystore, and the server stores the attestation as missing.
+
+**Windows installer** — unchanged in function since build 8 (only the embedded installation guide now says Android 8.0+); Inno Setup 6.7.1; the setup program is a 32-bit (x86) loader that refuses non-x64 Windows and installs 64-bit files (2,145 files for the server type). Not code-signed. Contents:
 
 | Component | Version / source |
 |---|---|
@@ -43,7 +46,7 @@ Everything is in `.github/workflows/release.yml`; the main commands:
 # Android (ubuntu-latest, JDK 17 Temurin, Gradle wrapper of the project, build-tools 37.0.0)
 cd quarry-app
 ./gradlew :ticket-format:test :quarry-core:test --no-daemon
-./gradlew :app:assembleDebug --no-daemon --stacktrace
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug --no-daemon --stacktrace
 # release APK only when the repository has signing secrets (it has none):
 ./gradlew :app:assembleRelease          # env TRUCKGATE_KEYSTORE, ..._PASSWORD, TRUCKGATE_KEY_ALIAS, TRUCKGATE_KEY_PASSWORD
 aapt2 dump badging app-debug.apk; apksigner verify --verbose --print-certs app-debug.apk
@@ -64,9 +67,10 @@ ISCC.exe /DAppVersion=1.0.0 /DSourceRoot=..\..\out deploy\windows\TruckGate.iss
 |---|---|---|
 | Ticket-format conformance (shared test vectors with the Python reference and the C# server: tickets, short codes, voids, gate receipts) | CI, JUnit | pass — 207 checks |
 | Quarry rules (geofence, issuance rules, ESC/POS printing, enrollment code, PIN hashes, signed configuration, **new: server-address QR**) | CI, JUnit | pass — 54 checks |
-| APK inspection: package, version, minSdk, signature verification, contents, no secrets | CI, aapt2/apksigner | pass |
-| Install → first launch shows the permission screen → permissions granted → enrollment screen → no crash → uninstall | **Android 11 emulator (API 30, x86_64)** | pass (screenshots in the draft release) |
-| Same | **Android 14 emulator (API 34, x86_64)** | pass |
+| API-level check (Android lint `NewApi`/`InlinedApi` on the app and its modules: no call that is missing on Android 8.0) | CI | pass — "No issues found" |
+| APK inspection: package, version, minSdk 26, signature verification, contents, no secrets | CI, aapt2/apksigner | pass |
+| On each emulator: install → first launch shows the permission screen → the permissions of that Android version granted → enrollment screen → no crash/ANR → uninstall | emulators **Android 8.0 (API 26), 9 (28), 10 (29), 11 (30), 14 (34)**, x86_64 | pass on all five (screenshots in the draft release) |
+| On each emulator: Android Keystore code of the app (instrumentation tests): the auth key is created in Keystore with an attestation chain (3 certificates) and its signatures verify the way the server checks them; with a screen-lock PIN set and no fingerprint enrolled, the platform **refuses** to create the ticket key ("At least one fingerprint/biometric must be enrolled to create keys requiring user authentication for every use") — proof that the ticket key cannot exist without a fingerprint rule on that version | same five emulators | pass — 2/2 on each |
 
 ### Windows installer — real installation on the CI Windows machine (35 checks, all pass)
 Machine: Windows Server 2025 Datacenter 10.0.26100, English, Windows PowerShell 5.1, administrator.
@@ -91,6 +95,9 @@ Machine: Windows Server 2025 Datacenter 10.0.26100, English, Windows PowerShell 
 | Problem | Fix |
 |---|---|
 | Android 11: the app asked for `BLUETOOTH_CONNECT`, which does not exist as a runtime permission before Android 12, so the app would never leave the permission screen on Android 11 | Asked only on Android 12+, coarse location asked with fine. Verified on the API 30 emulator |
+| The 1.0.0 APK required Android 11; the first field phone is older ("There was a problem parsing the package") | App 1.0.1 supports Android 8.0+ with the same fingerprint-per-ticket rule (§2) |
+| Found by the new Android 8.0 emulator test: on Android 8–10 the app froze after the permissions were granted — the GPS listener did not implement three callbacks that are only optional from Android 11, so the GPS status callback failed | All callbacks implemented; Android 8.0 emulator passes |
+| Android 9 emulator, first attempt of the final run: the screen dump came back empty although the screenshot showed the enrollment screen (test-harness timing) | Failed job re-run on the same build: pass. The test now retries the dump (committed after this build) |
 | `appsettings.Development.json` (development passwords) would have been copied into the installer | Excluded from publishing; CI checks it |
 | Installer: setting folder permissions in two steps left the data folder without any access in between; when the setup log could not be written there, server setup stopped (installer exit code 10) | Permissions set in one step; a log write can no longer stop the setup; a second setup log is written to the installing user's TEMP folder |
 | Inno Setup script compile error (Pascal Script type mismatch) | Fixed |
@@ -102,7 +109,8 @@ Build warnings: 1 — `CA1416` (Windows-only `EventLogSettings` used inside an `
 ## 6. Limitations — read before testing
 
 **Not tested with real hardware** (only simulated, or not at all):
-- A physical Android phone: fingerprint signing with the Android Keystore, key attestation, scanning a QR with the real camera, GPS fix and quarry boundary, the Bluetooth thermal ticket printer.
+- A physical Android phone: signing a ticket with a real fingerprint (emulators have no enrolled fingerprint — the tests prove only that the ticket key cannot be created without one), key attestation on real hardware, the fallback for phones that cannot attest, scanning a QR with the real camera, GPS fix and quarry boundary, the Bluetooth thermal ticket printer.
+- Android versions: tested only on emulators (8.0, 9, 10, 11, 14). Manufacturer builds (MIUI, One UI…) were not tested; Android 7 and older are not supported.
 - IP cameras / NVR (ONVIF discovery and snapshots were tested against a simulated camera only), the USB barcode scanner, the gate receipt printer.
 - SMS through the ZTE G5C router (tested against a simulation of its web interface only), WhatsApp Cloud API and Telegram (tested against simulated APIs only).
 - End-to-end with a phone: enrolling a real phone, issuing a ticket, printing, scanning it at the gate. The protocol (enrollment, signed sync, signed configuration) is covered by the server's HTTP tests with a simulated phone.
@@ -127,8 +135,8 @@ Build warnings: 1 — `CA1416` (Windows-only `EventLogSettings` used inside an `
 
 | What | Where |
 |---|---|
-| The two files, this report, the guide | `release/` in the repository working copy; the binaries also in the draft release `v1.0.0-build.8` |
-| Test evidence (logs, screenshots, emulator UI dumps, test results) | draft release: `evidence-android.zip`, `evidence-emulator-api30.zip`, `evidence-emulator-api34.zip`, `evidence-windows.zip`, `ci-status.txt`, `SHA256SUMS.txt` |
+| The two files, this report, the guide | `release/` in the repository working copy; the binaries also in the draft release `v1.0.0-build.10` |
+| Test evidence (logs, screenshots, emulator UI dumps, Keystore test output, test results) | draft release: `evidence-android.zip` (incl. lint report), `evidence-emulator-api26/28/29/30/34.zip`, `evidence-windows.zip`, `ci-status.txt`, `SHA256SUMS.txt` |
 | Installer sources | `deploy/windows/` (`TruckGate.iss`, `scripts/`) |
 | Build and test automation | `.github/workflows/release.yml`, `.github/scripts/` |
 | After installing on Windows | program `C:\Program Files\TruckGate`, data `C:\ProgramData\TruckGate` (logs in `logs\`, setup log `logs\install.log` and `%TEMP%\truckgate-install.log`) |
