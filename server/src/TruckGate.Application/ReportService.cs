@@ -7,8 +7,18 @@ namespace TruckGate.Application;
 
 public sealed record CountItem(string Key, string? Label, int Count);
 
-public sealed record RecentScan(long ScanId, DateTime ScannedAt, string Direction, string Outcome, string[] Reasons,
-    string? TicketId, string? FleetNumber, string? GateName);
+/// <summary>Mutable for Dapper (PostgreSQL arrays are not matched to constructor parameters).</summary>
+public sealed class RecentScan
+{
+    public long ScanId { get; set; }
+    public DateTime ScannedAt { get; set; }
+    public string Direction { get; set; } = "";
+    public string Outcome { get; set; } = "";
+    public string[] Reasons { get; set; } = [];
+    public string? TicketId { get; set; }
+    public string? FleetNumber { get; set; }
+    public string? GateName { get; set; }
+}
 
 public sealed record Dashboard(DateOnly Day, int Entries, int Exits, int Accepted, int Pending, int Rejected, int Partial,
     int Inside, int OpenReviews, int OpenAlertsCritical, int OpenAlertsOther, int PhonesOverdue,

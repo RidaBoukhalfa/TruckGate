@@ -10,17 +10,55 @@ namespace TruckGate.Application;
 
 public enum ReviewDecision { Accept, AcceptPartial, Reject }
 
-public sealed record ReviewQueueItem(long TripId, string TripNumber, string State, string? FleetNumber, string? Plate,
-    string? DriverName, DateTime EnteredAt, bool Exited, string Priority, bool IsSample, string[] Reasons, DateTime OpenedAt);
+/// <summary>Mutable for Dapper (PostgreSQL arrays are not matched to constructor parameters).</summary>
+public sealed class ReviewQueueItem
+{
+    public long TripId { get; set; }
+    public string TripNumber { get; set; } = "";
+    public string State { get; set; } = "";
+    public string? FleetNumber { get; set; }
+    public string? Plate { get; set; }
+    public string? DriverName { get; set; }
+    public DateTime EnteredAt { get; set; }
+    public bool Exited { get; set; }
+    public string Priority { get; set; } = "";
+    public bool IsSample { get; set; }
+    public string[] Reasons { get; set; } = [];
+    public DateTime OpenedAt { get; set; }
+}
 
-public sealed record ScanDetail(long ScanId, string Direction, string ScanType, DateTime ScannedAt, string Outcome,
-    string[] Reasons, string[] Notes, string? GatekeeperName, string? Decision, string? DecisionNote, string? GateName);
+/// <summary>Mutable for Dapper (PostgreSQL arrays are not matched to constructor parameters).</summary>
+public sealed class ScanDetail
+{
+    public long ScanId { get; set; }
+    public string Direction { get; set; } = "";
+    public string ScanType { get; set; } = "";
+    public DateTime ScannedAt { get; set; }
+    public string Outcome { get; set; } = "";
+    public string[] Reasons { get; set; } = [];
+    public string[] Notes { get; set; } = [];
+    public string? GatekeeperName { get; set; }
+    public string? Decision { get; set; }
+    public string? DecisionNote { get; set; }
+    public string? GateName { get; set; }
+}
 
 public sealed record SnapshotDetail(long Id, long ScanId, int CameraId, string CameraLabel, string Role, int FrameIndex,
     DateTime CapturedAt, string? LoadLabel, string? PlateLabel, string? QualityLabel);
 
-public sealed record ReviewRecord(long Id, string[] Reasons, string Priority, bool IsSample, DateTime CreatedAt,
-    string? Decision, string? DecisionReason, string? DecidedByName, DateTime? DecidedAt);
+/// <summary>Mutable for Dapper (PostgreSQL arrays are not matched to constructor parameters).</summary>
+public sealed class ReviewRecord
+{
+    public long Id { get; set; }
+    public string[] Reasons { get; set; } = [];
+    public string Priority { get; set; } = "";
+    public bool IsSample { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string? Decision { get; set; }
+    public string? DecisionReason { get; set; }
+    public string? DecidedByName { get; set; }
+    public DateTime? DecidedAt { get; set; }
+}
 
 public sealed record StateEventRecord(string? FromState, string ToState, string ReasonCode, string Actor, DateTime At, string? Note);
 

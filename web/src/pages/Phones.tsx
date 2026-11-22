@@ -69,12 +69,13 @@ export default function PhonesPage() {
 
       <Section title={t('phones')}>
         <table>
-          <thead><tr><th>#</th><th>{t('label')}</th><th>{t('enrolled')}</th><th>{t('revoked')}</th><th /></tr></thead>
+          <thead><tr><th>#</th><th>{t('label')}</th><th>{t('enrolled')}</th><th>{t('lastSync')}</th><th>{t('revoked')}</th><th /></tr></thead>
           <tbody>
             {devices.map((d) => (
               <tr key={d.id} className={d.revokedAt ? 'inactive' : ''}>
                 <td>{d.id}</td><td>{d.label}<div className="muted small">{d.kind}</div></td>
                 <td>{fmtTime(d.enrolledAt, lang)}</td>
+                <td>{fmtTime(d.lastSyncAt, lang)}</td>
                 <td>{d.revokedAt ? `${fmtTime(d.revokedAt, lang)} — ${d.revokeReason}` : ''}</td>
                 <td>{!d.revokedAt && (
                   <div className="row">

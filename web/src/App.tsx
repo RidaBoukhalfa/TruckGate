@@ -8,15 +8,25 @@ import PhonesPage from './pages/Phones'
 import FleetPage from './pages/Fleet'
 import UsersPage from './pages/Users'
 import IntegrityPage from './pages/Integrity'
+import DashboardPage from './pages/Dashboard'
+import ReviewPage from './pages/Review'
+import AlertsPage from './pages/Alerts'
+import PayPage from './pages/Pay'
+import SettingsPage from './pages/Settings'
 
-type Tab = 'gate' | 'cameras' | 'phones' | 'fleet' | 'users' | 'integrity'
+type Tab = 'gate' | 'dashboard' | 'review' | 'alerts' | 'pay' | 'cameras' | 'phones' | 'fleet' | 'users' | 'settings' | 'integrity'
 
 const tabs: { id: Tab; label: Key; roles: Role[] }[] = [
   { id: 'gate', label: 'tabGate', roles: ['GATEKEEPER', 'SUPERVISOR', 'ADMIN'] },
+  { id: 'dashboard', label: 'tabDashboard', roles: ['MANAGER', 'SUPERVISOR', 'ADMIN', 'ACCOUNTANT', 'AUDITOR'] },
+  { id: 'review', label: 'tabReview', roles: ['SUPERVISOR', 'ADMIN'] },
+  { id: 'alerts', label: 'tabAlerts', roles: ['SUPERVISOR', 'ADMIN', 'MANAGER'] },
+  { id: 'pay', label: 'tabPay', roles: ['ACCOUNTANT', 'ADMIN', 'MANAGER'] },
   { id: 'cameras', label: 'tabCameras', roles: ['ADMIN'] },
   { id: 'phones', label: 'tabPhones', roles: ['ADMIN'] },
   { id: 'fleet', label: 'tabFleet', roles: ['ADMIN'] },
   { id: 'users', label: 'tabUsers', roles: ['ADMIN'] },
+  { id: 'settings', label: 'tabSettings', roles: ['ADMIN'] },
   { id: 'integrity', label: 'tabIntegrity', roles: ['ADMIN', 'MANAGER', 'AUDITOR'] },
 ]
 
@@ -73,8 +83,11 @@ export default function App() {
       <main>
         {user === undefined ? null : user === null ? (
           <Login onLoggedIn={(u) => { setUser(u); setLang(u.language) }} />
-        ) : tab === 'gate' ? <GatePage /> : tab === 'cameras' ? <CamerasPage /> : tab === 'phones' ? <PhonesPage />
-          : tab === 'fleet' ? <FleetPage /> : tab === 'users' ? <UsersPage /> : <IntegrityPage />}
+        ) : {
+          gate: <GatePage />, dashboard: <DashboardPage />, review: <ReviewPage />, alerts: <AlertsPage />,
+          pay: <PayPage role={user.role} />, cameras: <CamerasPage />, phones: <PhonesPage />, fleet: <FleetPage />,
+          users: <UsersPage />, settings: <SettingsPage />, integrity: <IntegrityPage />,
+        }[tab]}
       </main>
     </I18nContext.Provider>
   )
