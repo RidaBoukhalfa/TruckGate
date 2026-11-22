@@ -56,8 +56,16 @@ function Health { Invoke-RestMethod -Uri "$base/health" -TimeoutSec 10 }
 # cookie container is not what is being tested here).
 function Login([string]$user, [string]$pass) {
     $body = @{ username = $user; secret = $pass } | ConvertTo-Json
-    $r = Invoke-WebRequest -Uri "$base/api/auth/login" -Method Post -Body $body -ContentType 'application/json' `
-        -Headers @{ 'X-TG-CSRF' = '1' } -UseBasicParsing
+    try {
+        $r = Invoke-WebRequest -Uri "$base/api/auth/login" -Method Post -Body $body -ContentType 'application/json' `
+            -Headers @{ 'X-TG-CSRF' = '1' } -UseBasicParsing
+    } catch [System.Net.WebException] {
+        $resp = $_.Exception.Response
+        $text = ''
+        if ($resp -ne $null) { $text = (New-Object IO.StreamReader($resp.GetResponseStream())).ReadToEnd() }
+        $msg = "login HTTP " + $(if ($resp) { [int]$resp.StatusCode } else { '?' }) + ": " + $text
+        throw (New-Object System.Net.WebException($msg, $_.Exception, $_.Exception.Status, $resp))
+    }
     $set = [string]$r.Headers['Set-Cookie']
     $pairs = [regex]::Matches($set, '(tg_session[A-Za-z0-9]*)=([^;,\s]+)') | ForEach-Object { $_.Groups[1].Value + '=' + $_.Groups[2].Value }
     if (-not $pairs) { throw "login answered HTTP $($r.StatusCode) without a session cookie: $set" }
@@ -187,12 +195,22 @@ $adminPass = 'Ci-' + [guid]::NewGuid().ToString('N').Substring(0, 16)
 Check 'create-admin (console command)' {
     Push-Location (Join-Path $app 'server')
     $ErrorActionPreference = 'Continue'
+    $OutputEncoding = New-Object System.Text.UTF8Encoding $false
     try { $o = ("admin`nSite Admin`n$adminPass`n$adminPass`n" | & $exe create-admin 2>&1 | Out-String) } finally { Pop-Location }
     Assert ($o -match 'Administrator created') $o
     ($o -split "`n" | Where-Object { $_ -match 'created' }).Trim()
 }
 $script:session = $null
 $script:inviteKey = $null
+Check 'administrator stored as typed (database check)' {
+    $sec = Get-Content (Join-Path $root 'config\secrets.json') -Raw | ConvertFrom-Json
+    $env:PGPASSWORD = $sec.superuserPassword
+    $q = "SELECT username || ' len=' || length(username) || ' hex=' || encode(convert_to(username, 'UTF8'), 'hex') || ' role=' || role FROM tg.users"
+    $o = (& (Join-Path $app 'pgsql\bin\psql.exe') -X -A -t -h 127.0.0.1 -p 5433 -U postgres -d truckgate -c $q 2>&1 | Out-String).Trim()
+    Remove-Item Env:\PGPASSWORD
+    Assert ($o -match '^admin len=5 ') $o
+    $o
+}
 Check 'login with the new administrator' {
     $script:session = Login 'admin' $adminPass
     $me = Invoke-RestMethod -Uri "$base/api/auth/me" -Headers $script:session

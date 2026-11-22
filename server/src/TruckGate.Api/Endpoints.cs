@@ -330,9 +330,9 @@ internal static class Setup
     public static async Task CreateFirstAdminAsync(AuthService auth)
     {
         Console.Write("Username: ");
-        var username = Console.ReadLine()?.Trim() ?? "";
+        var username = Clean(Console.ReadLine());
         Console.Write("Full name: ");
-        var fullName = Console.ReadLine()?.Trim() ?? "";
+        var fullName = Clean(Console.ReadLine());
         var password = ReadHidden("Password (10+ characters): ");
         if (password != ReadHidden("Repeat password: "))
         {
@@ -352,10 +352,13 @@ internal static class Setup
         }
     }
 
+    /// <summary>Input piped from a file or another program may start with a byte-order mark.</summary>
+    private static string Clean(string? line) => (line ?? "").Replace("\uFEFF", "").Trim();
+
     private static string ReadHidden(string prompt)
     {
         Console.Write(prompt);
-        if (Console.IsInputRedirected) return Console.ReadLine() ?? "";
+        if (Console.IsInputRedirected) return (Console.ReadLine() ?? "").Replace("\uFEFF", "").TrimEnd('\r', '\n');
         var sb = new System.Text.StringBuilder();
         while (true)
         {

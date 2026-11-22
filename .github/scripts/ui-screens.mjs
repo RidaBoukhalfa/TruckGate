@@ -19,6 +19,7 @@ await inputs[1].type(pass)
 await Promise.all([page.waitForResponse((r) => r.url().includes('/api/auth/login')), page.click('form button')])
 await new Promise((r) => setTimeout(r, 1500))
 await page.screenshot({ path: `${out}/web-2-gate.png` })
+if (!(await page.$('button.tab'))) throw new Error('still on the login page after signing in')
 const clickButton = async (selector, labels) => {
   const ok = await page.evaluate((sel, ls) => {
     const b = [...document.querySelectorAll(sel)].find((x) => ls.some((l) => x.textContent.includes(l)))
