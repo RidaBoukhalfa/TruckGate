@@ -84,7 +84,76 @@ export interface TicketNames {
   operatorName: string | null
 }
 export interface Snapshot { id: number; cameraId: number; cameraLabel: string; role: string; frameIndex: number; capturedAt: string }
-export interface ScanView { scan: ScanResult; names: TicketNames | null; snapshots: Snapshot[] }
+export interface ScanView { kind: 'ENTRY'; scan: ScanResult; names: TicketNames | null; snapshots: Snapshot[] }
+export interface TripCard {
+  tripId: number; tripNumber: string; state: string; truckId: number; fleetNumber: string | null; plate: string | null
+  driverName: string | null; ticketId: string; enteredAt: string; loadStatus: string | null; entryDecision: string | null
+}
+export interface ExitResult { scanId: number; outcome: 'ACCEPT' | 'PENDING' | 'REJECT'; reasons: string[]; notes: string[]; trip: TripCard | null }
+export interface ExitView { kind: 'EXIT'; exit: ExitResult; snapshots: Snapshot[] }
+export interface ExitDecisionResult { tripId: number; tripNumber: string; state: string; reviewId: number | null; reasons: string[] }
+export interface ReceiptData {
+  tripId: number; tripNumber: string; qrText: string; fleetNumber: string | null; plate: string | null; driverName: string | null
+  gateName: string; enteredAt: string; loadStatus: string | null; printCount: number
+}
+export interface ReviewQueueItem {
+  tripId: number; tripNumber: string; state: string; fleetNumber: string | null; plate: string | null; driverName: string | null
+  enteredAt: string; exited: boolean; priority: 'HIGH' | 'NORMAL' | 'LOW'; isSample: boolean; reasons: string[]; openedAt: string
+}
+export interface ScanDetail {
+  scanId: number; direction: 'ENTRY' | 'EXIT'; scanType: string; scannedAt: string; outcome: string; reasons: string[]; notes: string[]
+  gatekeeperName: string | null; decision: string | null; decisionNote: string | null; gateName: string | null
+}
+export interface SnapshotDetail {
+  id: number; scanId: number; cameraId: number; cameraLabel: string; role: string; frameIndex: number; capturedAt: string
+  loadLabel: string | null; plateLabel: string | null; qualityLabel: string | null
+}
+export interface ReviewRecord {
+  id: number; reasons: string[]; priority: string; isSample: boolean; createdAt: string; decision: string | null
+  decisionReason: string | null; decidedByName: string | null; decidedAt: string | null
+}
+export interface StateEvent { fromState: string | null; toState: string; reasonCode: string; actor: string; at: string; note: string | null }
+export interface TicketDetail {
+  ticketId: string; issuedAt: string; clockDelta: number; flags: number; lat: number | null; lon: number | null; configVersion: number
+  operatorName: string | null; firstSeenVia: string; hasPhoto: boolean; driverChangeReason: string | null; voided: boolean
+}
+export interface TripDetail {
+  trip: TripCard; ticket: TicketDetail | null; scans: ScanDetail[]; snapshots: SnapshotDetail[]; reviews: ReviewRecord[]
+  events: StateEvent[]; receiptPrints: number
+}
+export interface AlertItem {
+  id: number; type: string; severity: 'CRITICAL' | 'MEDIUM' | 'INFO'; entity: string | null; entityId: string | null; params: string
+  createdAt: string; smsSentAt: string | null; telegramSentAt: string | null; ackByName: string | null; ackAt: string | null
+  failedDeliveries: number
+}
+export interface ChannelStatus {
+  smsEnabled: boolean; smsPort: string; smsRecipients: string[]; smsMinSeverity: string; telegramEnabled: boolean
+  telegramTokenSet: boolean; telegramChatIds: string[]; telegramMinSeverity: string; language: string
+}
+export interface SettingItem { key: string; value: string; type: string; min: string | null; max: string | null }
+export interface CountItem { key: string; label: string | null; count: number }
+export interface RecentScan {
+  scanId: number; scannedAt: string; direction: string; outcome: string; reasons: string[]; ticketId: string | null
+  fleetNumber: string | null; gateName: string | null
+}
+export interface Dashboard {
+  day: string; entries: number; exits: number; accepted: number; pending: number; rejected: number; partial: number; inside: number
+  openReviews: number; openAlertsCritical: number; openAlertsOther: number; phonesOverdue: number
+  byTruck: CountItem[]; byDriver: CountItem[]; byHour: CountItem[]; recent: RecentScan[]
+}
+export interface StatementLine { driverId: number; driverName: string; employmentType: string; trips: number; full: number; partial: number; amount: number }
+export interface StatementTrip {
+  tripId: number; tripNumber: string; enteredAt: string; driverId: number; driverName: string; truckId: number
+  fleetNumber: string | null; loadStatus: string | null; state: string; amount: number
+}
+export interface Statement {
+  from: string; to: string; pricePerTrip: number; partialPercent: number; currency: string; lines: StatementLine[]
+  trips: StatementTrip[]; total: number; notYetPayable: number
+}
+export interface PaymentBatch {
+  id: number; periodFrom: string; periodTo: string; pricePerTrip: number; currency: string; tripCount: number; total: number
+  note: string | null; createdByName: string | null; createdAt: string
+}
 export interface DecisionResult {
   tripId: number; tripNumber: string; state: string; loadStatus: string | null; reviewId: number | null; reviewReasons: string[]
 }
