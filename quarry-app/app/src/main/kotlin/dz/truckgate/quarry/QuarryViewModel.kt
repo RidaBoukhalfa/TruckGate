@@ -17,10 +17,18 @@ import dz.truckgate.quarry.core.IssuanceRules
 import dz.truckgate.quarry.core.PaperWidth
 import dz.truckgate.quarry.core.PinHash
 import dz.truckgate.quarry.core.PrinterProfile
-import dz.truckgate.quarry.core.SignedConfig
 import dz.truckgate.quarry.data.DeviceConfig
 import dz.truckgate.quarry.data.Driver
 import dz.truckgate.quarry.data.Operator
+import dz.truckgate.quarry.data.Keys.K_CONFIG
+import dz.truckgate.quarry.data.Keys.K_DEVICE_ID
+import dz.truckgate.quarry.data.Keys.K_LAST_SYNC
+import dz.truckgate.quarry.data.Keys.K_LAST_SYNC_ERROR
+import dz.truckgate.quarry.data.Keys.K_PAPER
+import dz.truckgate.quarry.data.Keys.K_PRINTER
+import dz.truckgate.quarry.data.Keys.K_REVOKED
+import dz.truckgate.quarry.data.Keys.K_SERVER_KEY
+import dz.truckgate.quarry.data.Keys.K_SERVER_URL
 import dz.truckgate.quarry.data.Store
 import dz.truckgate.quarry.data.StoredTicket
 import dz.truckgate.quarry.data.Truck
@@ -34,6 +42,8 @@ import dz.truckgate.quarry.print.TicketRenderer
 import dz.truckgate.quarry.security.Biometric
 import dz.truckgate.quarry.security.DeviceKeys
 import dz.truckgate.quarry.security.UnlockedTicketSigner
+import dz.truckgate.quarry.sync.SyncEngine
+import dz.truckgate.quarry.sync.SyncWorker
 import dz.truckgate.ticket.EcdsaP256
 import dz.truckgate.ticket.TicketFields
 import dz.truckgate.ticket.TicketIssuer
@@ -52,7 +62,7 @@ import java.util.Base64
 enum class Screen { Enroll, Login, Home, NewTicket, History, TicketDetail, Settings }
 
 class QuarryViewModel(app: Application) : AndroidViewModel(app) {
-    private val store = Store(app)
+    private val store = Store.get(app)
     val gps = GpsTracker(app)
     private val printer = BluetoothPrinter(app)
 
@@ -82,6 +92,12 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var tickets by mutableStateOf<List<StoredTicket>>(emptyList())
         private set
+    var unsynced by mutableStateOf(0)
+        private set
+    var lastSyncAt by mutableStateOf<Long?>(null)
+        private set
+    var syncError by mutableStateOf<String?>(null)
+        private set
 
     private var wrongPins = 0
     private var lockedUntilMs = 0L
@@ -89,6 +105,7 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
     init {
         config = store.get(K_CONFIG)?.let { runCatching { DeviceConfig.parse(it) }.getOrNull() }
         screen = if (store.get(K_DEVICE_ID) != null && DeviceKeys.exist()) Screen.Login else Screen.Enroll
+        if (screen == Screen.Login) SyncWorker.schedule(app)
         refreshTickets()
     }
 
@@ -125,8 +142,9 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
                         K_DEVICE_ID to enrolled.deviceId.toString(),
                         K_LAST_SYNC to enrolled.serverTime.toString(),
                     ))
-                    fetchConfig()
+                    SyncEngine(getApplication<Application>()).fetchConfig(ServerApi(invite.serverUrl), enrolled.deviceId, enrolled.serverTime)
                 }
+                SyncWorker.schedule(getApplication<Application>())
                 config = cfg
                 screen = Screen.Login
             } catch (e: Exception) {
@@ -137,39 +155,24 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun refreshConfig() {
+    /** Configuration down, tickets and voids up, photos too (the operator asked for it). */
+    fun syncNow() {
         busy = true
         viewModelScope.launch {
             try {
-                val cfg = withContext(Dispatchers.IO) { fetchConfig() }
-                config = cfg
-                message = str(R.string.config_updated, cfg.version)
+                val r = withContext(Dispatchers.IO) { SyncEngine(getApplication<Application>()).run(includePhotos = true) }
+                config = r.config
+                message = str(R.string.sync_done, r.sent, r.photos, r.config?.version ?: 0) +
+                    if (r.rejected > 0) "\n" + str(R.string.sync_rejected, r.rejected) else ""
             } catch (e: ServerException) {
-                if (e.code == "DEVICE_NOT_ALLOWED") store.put(K_REVOKED, "1")
                 message = str(R.string.error, e.message ?: e.code)
             } catch (e: Exception) {
                 message = str(R.string.error, e.message ?: e.javaClass.simpleName)
             } finally {
                 busy = false
+                refreshTickets()
             }
         }
-    }
-
-    /** Downloads, verifies (pinned server key, device id, no rollback) and stores the configuration. */
-    private fun fetchConfig(): DeviceConfig {
-        val id = deviceId ?: error("not enrolled")
-        val serverKey = Base64.getDecoder().decode(store.get(K_SERVER_KEY) ?: error("no server key"))
-        val signed = ServerApi(serverUrl ?: error("no server")).fetchConfig(id, gps.bestUnixSeconds()) {
-            DeviceKeys.signWithAuthKey(it)
-        }
-        check(SignedConfig.verify(signed.payload, signed.signature, serverKey)) { "configuration signature is invalid" }
-        val cfg = DeviceConfig.parse(signed.payload)
-        check(cfg.deviceId == id) { "configuration is for another device" }
-        val previous = store.get(K_CONFIG)?.let { runCatching { DeviceConfig.parse(it) }.getOrNull() }
-        check(previous == null || cfg.generatedAt >= previous.generatedAt) { "older configuration refused" }
-        store.putAll(mapOf(K_CONFIG to signed.payload, K_CONFIG_SIG to signed.signature,
-            K_LAST_SYNC to cfg.generatedAt.toString()))
-        return cfg
     }
 
     // ------------------------------------------------------------------ login
@@ -246,8 +249,7 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
                 defaultDriverId = t.defaultDriverId,
                 driverId = driver!!.id,
                 lastSyncAt = store.get(K_LAST_SYNC)?.toLongOrNull() ?: 0,
-                // Ticket upload arrives with sync (step 6); until then only the configuration refresh counts.
-                unsyncedCount = 0,
+                unsyncedCount = store.unsyncedCount(),
             ),
             cfg.params,
         )
@@ -296,6 +298,7 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
                     seq
                 }
                 screen = Screen.Home
+                SyncWorker.kick(getApplication<Application>())
                 printStored(seq)
             } catch (e: Exception) {
                 message = str(R.string.error, e.message ?: e.javaClass.simpleName)
@@ -319,6 +322,7 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 withContext(Dispatchers.IO) { printer.print(address, render(t)) }
                 store.markPrinted(seq)
+                SyncWorker.kick(getApplication<Application>())
                 message = str(R.string.printed)
             } catch (e: Exception) {
                 message = str(R.string.print_failed, e.message ?: e.javaClass.simpleName)
@@ -381,6 +385,9 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshTickets() {
         tickets = store.recent()
+        unsynced = store.unsyncedCount()
+        lastSyncAt = store.get(K_LAST_SYNC)?.toLongOrNull()
+        syncError = store.get(K_LAST_SYNC_ERROR)?.takeIf { it.isNotBlank() }
     }
 
     fun open(t: StoredTicket) {
@@ -405,6 +412,7 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
                 val at = gps.bestUnixSeconds()
                 unlocked.update("TGVOID1|${t.ticketId}|$at|${reason.trim()}".toByteArray(Charsets.UTF_8))
                 store.markVoided(t.seq, at, reason.trim(), EcdsaP256.derToRaw(unlocked.sign()))
+                SyncWorker.kick(getApplication<Application>())
                 selected = store.ticket(t.seq)
                 refreshTickets()
             },
@@ -413,18 +421,5 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         gps.stop()
-        store.close()
-    }
-
-    private companion object {
-        const val K_DEVICE_ID = "device_id"
-        const val K_SERVER_URL = "server_url"
-        const val K_SERVER_KEY = "server_key"
-        const val K_CONFIG = "config_payload"
-        const val K_CONFIG_SIG = "config_signature"
-        const val K_LAST_SYNC = "last_sync_at"
-        const val K_REVOKED = "revoked"
-        const val K_PRINTER = "printer_address"
-        const val K_PAPER = "paper_width"
     }
 }

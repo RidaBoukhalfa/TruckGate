@@ -79,4 +79,9 @@
     <string name="gps_none">بلا GPS</string>
     <string name="no_printer">لم تُختر طابعة</string>
     <string name="error">خطأ: %1$s</string>
+    <string name="sync_now">مزامنة الآن</string>
+    <string name="status_sync">غير مرسلة: %1$d</string>
+    <string name="last_sync">آخر مزامنة: %1$s</string>
+    <string name="sync_done">أُرسلت %1$d تذكرة و%2$d صورة — الإعدادات v%3$d</string>
+    <string name="sync_rejected">رفض الخادم %1$d تذكرة — أبلغ المشرف</string>
 </resources>

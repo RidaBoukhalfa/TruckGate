@@ -79,4 +79,9 @@
     <string name="gps_none">Sans GPS</string>
     <string name="no_printer">Aucune imprimante</string>
     <string name="error">Erreur : %1$s</string>
+    <string name="sync_now">Synchroniser</string>
+    <string name="status_sync">Non envoyés : %1$d</string>
+    <string name="last_sync">Dernière synchro : %1$s</string>
+    <string name="sync_done">%1$d bons et %2$d photos envoyés — paramètres v%3$d</string>
+    <string name="sync_rejected">Le serveur a refusé %1$d bons — prévenez le superviseur</string>
 </resources>

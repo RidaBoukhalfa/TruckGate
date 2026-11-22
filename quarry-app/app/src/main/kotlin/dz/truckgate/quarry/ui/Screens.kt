@@ -172,7 +172,7 @@ private fun LoginScreen(vm: QuarryViewModel) {
         Title(stringResource(R.string.login_title))
         if (cfg == null || cfg.operators.isEmpty()) {
             Text(stringResource(R.string.config_missing), fontSize = 18.sp)
-            SecondaryButton(stringResource(R.string.config_refresh), vm::refreshConfig)
+            SecondaryButton(stringResource(R.string.sync_now), vm::syncNow)
             return@Page
         }
         val op = chosen
@@ -209,14 +209,19 @@ private fun HomeScreen(vm: QuarryViewModel) {
             StatusDot(vm.printerAddress != null, stringResource(R.string.status_printer))
             StatusDot(fix != null && fix.ageMs < 120_000, stringResource(R.string.gps_ok))
             StatusDot(cfg != null, stringResource(R.string.status_config, cfg?.version ?: 0))
+            StatusDot(vm.unsynced == 0 && vm.syncError == null, stringResource(R.string.status_sync, vm.unsynced))
         }
+        Text(stringResource(R.string.last_sync, vm.lastSyncAt?.let {
+            java.time.format.DateTimeFormatter.ofPattern("dd/MM HH:mm").withZone(java.time.ZoneId.systemDefault())
+                .format(java.time.Instant.ofEpochSecond(it))
+        } ?: "—"), fontSize = 14.sp)
         Spacer(Modifier.height(12.dp))
         BigButton(stringResource(R.string.home_new_ticket), vm::startTicket, enabled = cfg != null)
         Text(stringResource(R.string.home_today, vm.todayCount), fontSize = 18.sp)
         vm.tickets.firstOrNull()?.let { Text(stringResource(R.string.home_last, it.ticketId), fontSize = 16.sp) }
         Spacer(Modifier.weight(1f))
         SecondaryButton(stringResource(R.string.home_history), { vm.go(Screen.History) })
-        SecondaryButton(stringResource(R.string.config_refresh), vm::refreshConfig)
+        SecondaryButton(stringResource(R.string.sync_now), vm::syncNow)
         SecondaryButton(stringResource(R.string.home_settings), { vm.go(Screen.Settings) })
         SecondaryButton(stringResource(R.string.home_logout), vm::logout)
     }
@@ -414,7 +419,7 @@ private fun SettingsScreen(vm: QuarryViewModel) {
                 label = { Text(stringResource(R.string.paper_80)) })
         }
         SecondaryButton(stringResource(R.string.test_print), vm::testPrint, enabled = chosen != null)
-        SecondaryButton(stringResource(R.string.config_refresh), vm::refreshConfig)
+        SecondaryButton(stringResource(R.string.sync_now), vm::syncNow)
         SecondaryButton(stringResource(R.string.back), { vm.go(Screen.Home) })
     }
 }
