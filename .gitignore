@@ -1,0 +1,36 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+
+# Gradle / Kotlin / Android
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+captures/
+*.keystore
+*.jks
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Web
+node_modules/
+dist/
+
+# Data and secrets — never commit
+.env
+*.pem
+*.key
+dataset/
+storage/
+
+# OS
+.DS_Store
+Thumbs.db
