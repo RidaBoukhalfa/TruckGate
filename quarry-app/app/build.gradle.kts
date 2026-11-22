@@ -30,6 +30,11 @@ android {
     // TRUCKGATE_KEYSTORE (path), TRUCKGATE_KEYSTORE_PASSWORD, TRUCKGATE_KEY_ALIAS, TRUCKGATE_KEY_PASSWORD.
     val keystore = System.getenv("TRUCKGATE_KEYSTORE")?.takeIf { it.isNotBlank() && file(it).exists() }
     signingConfigs {
+        // Test builds: one fixed debug key provided by CI (cached there, never committed), so a
+        // newer test APK installs over the previous one. Locally the usual ~/.android key is used.
+        getByName("debug") {
+            System.getenv("TRUCKGATE_DEBUG_KEYSTORE")?.takeIf { file(it).exists() }?.let { storeFile = file(it) }
+        }
         if (keystore != null) {
             create("release") {
                 storeFile = file(keystore)

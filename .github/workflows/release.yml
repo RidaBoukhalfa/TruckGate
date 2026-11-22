@@ -46,8 +46,15 @@ jobs:
       - name: Same debug signing key for every test build
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: truckgate-debug-keystore-v1
+          path: ~/truckgate-debug.keystore
+          key: truckgate-debug-keystore-v2
+      - name: Create that key the first time
+        run: |
+          if [ ! -f ~/truckgate-debug.keystore ]; then
+            keytool -genkeypair -keystore ~/truckgate-debug.keystore -storepass android -alias androiddebugkey \
+              -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          echo "TRUCKGATE_DEBUG_KEYSTORE=$HOME/truckgate-debug.keystore" >> "$GITHUB_ENV"
       - run: mkdir -p apk-out
       - name: Unit tests (ticket format conformance, quarry rules)
         working-directory: quarry-app
