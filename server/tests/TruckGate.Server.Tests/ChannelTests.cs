@@ -90,6 +90,7 @@ public class ChannelTests
 
         public HttpResponseMessage Respond(HttpRequestMessage req, string body)
         {
+            if (req.RequestUri!.AbsolutePath.StartsWith("/ubus")) return new HttpResponseMessage(HttpStatusCode.NotFound);
             if (req.Headers.Referrer is null) RefererSeen = false;
             var query = System.Web.HttpUtility.ParseQueryString(req.RequestUri!.Query);
             if (req.Method == HttpMethod.Get)
@@ -156,6 +157,111 @@ public class ChannelTests
 
         Assert.Contains("login refused", e.Message);
         Assert.Empty(router.Sms);
+    }
+
+    /// <summary>Behaves like the web interface of a ZTE G5-series CPE (JSON-RPC on /ubus/ with AES-GCM fields).</summary>
+    private sealed class FakeG5(string password) : IDisposable
+    {
+        public const string Salt = "a1b2c3d4e5f60718";
+        private readonly System.Security.Cryptography.RSA _rsa = System.Security.Cryptography.RSA.Create(2048);
+        private byte[]? _key;
+        private string? _session;
+        public List<(string Number, string Text)> Sms { get; } = [];
+        public bool LoggedOut { get; private set; }
+        public bool RefererSeen { get; private set; } = true;
+
+        public HttpResponseMessage Respond(HttpRequestMessage req, string body)
+        {
+            if (!req.RequestUri!.AbsolutePath.StartsWith("/ubus/")) return new HttpResponseMessage(HttpStatusCode.NotFound);
+            if (req.Headers.Referrer is null) RefererSeen = false;
+            var call = JsonDocument.Parse(body).RootElement[0];
+            var p = call.GetProperty("params");
+            var (session, obj, method, args) = (p[0].GetString(), p[1].GetString(), p[2].GetString(), p[3]);
+            var id = call.GetProperty("id").GetInt32();
+            HttpResponseMessage Ok(object data) => Json(new[] { new { jsonrpc = "2.0", id, result = new object[] { 0, data } } });
+
+            if (method == "web_login_info") return Ok(new { zte_web_sault = Salt, login_fail_num = 5 });
+            if (method == "web_login")
+            {
+                var good = args.GetProperty("password").GetString() ==
+                           ZteRouterSmsSender.Sha256Upper(ZteRouterSmsSender.Sha256Upper(password) + Salt);
+                _session = good ? "5f2b5c1e9a7d4e3f8b6a2c1d0e9f8a7b" : null;
+                return good ? Ok(new { result = 0, ubus_rpc_session = _session, timeout = 300 }) : Ok(new { result = 1 });
+            }
+            if (session != _session)
+                return Json(new[] { new { jsonrpc = "2.0", id, error = new { code = -32002, message = "Access denied" } } });
+            switch (obj, method)
+            {
+                case ("zwrt_web", "web_crt_get"):
+                    return Ok(new { result = "-----BEGIN PUBLIC KEY-----" + Convert.ToBase64String(_rsa.ExportSubjectPublicKeyInfo()) + "-----END PUBLIC KEY-----" });
+                case ("zwrt_web", "web_http_enstr_set"):
+                    var hex = Encoding.ASCII.GetString(_rsa.Decrypt(Convert.FromBase64String(args.GetProperty("web_enstr").GetString()!),
+                        System.Security.Cryptography.RSAEncryptionPadding.Pkcs1));
+                    _key = Convert.FromHexString(hex);
+                    return Ok(new { });
+                case ("zwrt_wms", "zte_libwms_send_sms"):
+                    if (args.GetProperty("encode_type").GetString() != "UNICODE" || args.GetProperty("id").GetString() != "-1")
+                        return Ok(new { result = 1 });
+                    var number = ZteRouterSmsSender.AesGcmDecrypt(_key!, args.GetProperty("number").GetString()!);
+                    var textHex = ZteRouterSmsSender.AesGcmDecrypt(_key!, args.GetProperty("message_body").GetString()!);
+                    Sms.Add((number, Encoding.BigEndianUnicode.GetString(Convert.FromHexString(textHex))));
+                    return Ok(new { });
+                case ("zwrt_wms", "zwrt_wms_get_cmd_status"):
+                    return Ok(new { sms_cmd = args.GetProperty("sms_cmd").GetInt32(), sms_cmd_status_result = 3 });
+                case ("zwrt_web", "web_logout"):
+                    LoggedOut = true;
+                    return Ok(new { });
+                default:
+                    return Json(new[] { new { jsonrpc = "2.0", id, result = new object[] { 3 } } });
+            }
+        }
+
+        public void Dispose() => _rsa.Dispose();
+    }
+
+    [Fact]
+    public async Task G5_router_sends_encrypted_unicode_sms_over_json_rpc_and_logs_out()
+    {
+        using var router = new FakeG5("site-pass");
+        var sender = new ZteRouterSmsSender(() => new Handler(router.Respond));
+
+        await sender.SendAsync(new SmsConfig(SmsConfig.ZteRouter, "", "https://192.168.0.1/", "", "site-pass"),
+            "+213550000001", "تنبيه حرج: شاحنة خرجت محمّلة T-000123", default);
+
+        var sms = Assert.Single(router.Sms);
+        Assert.Equal("+213550000001", sms.Number);
+        Assert.Equal("تنبيه حرج: شاحنة خرجت محمّلة T-000123", sms.Text);
+        Assert.True(router.LoggedOut);
+        Assert.True(router.RefererSeen);
+    }
+
+    [Fact]
+    public async Task G5_router_wrong_password_is_reported()
+    {
+        using var router = new FakeG5("site-pass");
+        var sender = new ZteRouterSmsSender(() => new Handler(router.Respond));
+
+        var e = await Assert.ThrowsAsync<AlertChannelException>(() =>
+            sender.SendAsync(new SmsConfig(SmsConfig.ZteRouter, "", "https://192.168.0.1", "", "nope"), "+213550000001", "x", default));
+
+        Assert.Contains("login refused", e.Message);
+        Assert.Empty(router.Sms);
+    }
+
+    [Fact]
+    public void Router_gcm_fields_round_trip_and_self_signed_certificates_are_only_trusted_on_the_lan()
+    {
+        var key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        var enc = ZteRouterSmsSender.AesGcmEncrypt(key, "062A0646");
+        Assert.Equal(12 + 16 + 8, Convert.FromBase64String(enc).Length);
+        Assert.Equal("062A0646", ZteRouterSmsSender.AesGcmDecrypt(key, enc));
+
+        Assert.True(ZteRouterSmsSender.IsPrivateAddress("192.168.0.1"));
+        Assert.True(ZteRouterSmsSender.IsPrivateAddress("10.10.10.1"));
+        Assert.True(ZteRouterSmsSender.IsPrivateAddress("172.20.0.1"));
+        Assert.False(ZteRouterSmsSender.IsPrivateAddress("8.8.8.8"));
+        Assert.False(ZteRouterSmsSender.IsPrivateAddress("172.32.0.1"));
+        Assert.False(ZteRouterSmsSender.IsPrivateAddress("router.example.com"));
     }
 
     [Fact]

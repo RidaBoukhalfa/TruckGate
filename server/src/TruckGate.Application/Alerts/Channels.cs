@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO.Ports;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace TruckGate.Application.Alerts;
@@ -184,54 +185,41 @@ public sealed class SmsSender(SerialSmsSender modem, ZteRouterSmsSender router) 
 }
 
 /// <summary>
-/// SMS through the web interface of a ZTE 4G/5G router or MiFi (the SIM inside the router sends it), as
-/// the router's own web page does: /goform/goform_set_cmd_process with goformId=SEND_SMS. The interface
-/// is not documented by ZTE and varies by model and firmware; this follows the common variant (LD-salted
-/// SHA-256 or Base64 login, AD token = MD5(MD5(wa_inner_version + cr_version) + RD)). Use the Test button.
+/// SMS through the web interface of a ZTE 4G/5G router (the SIM inside the router sends it), the way the
+/// router's own web page does. ZTE does not document these interfaces; two families are supported and
+/// detected automatically:
+/// <list type="bullet">
+/// <item>newer 5G CPEs (G5 series: G5C, G5TS…): JSON-RPC on <c>/ubus/</c>, salted SHA-256 login, then an
+/// AES-256-GCM key sent RSA-encrypted; the number and the text are encrypted with that key;</item>
+/// <item>older MiFi / CPEs (MF, MU, MC series): <c>/goform/goform_set_cmd_process</c> with goformId=SEND_SMS,
+/// LD-salted SHA-256 or Base64 login and the AD token.</item>
+/// </list>
+/// Written from the public description of these protocols; use the Test button on the site router.
 /// </summary>
 public sealed class ZteRouterSmsSender(Func<HttpMessageHandler>? handlerFactory = null) : ISmsSender
 {
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private const string NullSession = "00000000000000000000000000000000";
 
     public async Task SendAsync(SmsConfig config, string number, string text, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(number) || !number.Trim().TrimStart('+').All(char.IsAsciiDigit))
             throw new AlertChannelException($"invalid phone number '{number}'");
-        if (!Uri.TryCreate(config.RouterUrl.TrimEnd('/'), UriKind.Absolute, out var baseUri) || baseUri.Scheme is not ("http" or "https"))
-            throw new AlertChannelException("router address must be http://...");
+        var root = config.RouterUrl.Trim().TrimEnd('/');
+        if (!Uri.TryCreate(root, UriKind.Absolute, out var baseUri) || baseUri.Scheme is not ("http" or "https"))
+            throw new AlertChannelException("router address must be http://... or https://...");
         var body = text.Length > AtModem.MaxUcs2Chars ? text[..(AtModem.MaxUcs2Chars - 1)] + "…" : text;
 
         await _lock.WaitAsync(ct);
         try
         {
-            var cookies = new System.Net.CookieContainer();
-            var handler = handlerFactory?.Invoke() ?? new HttpClientHandler();
-            if (handler is HttpClientHandler h) { h.CookieContainer = cookies; h.UseCookies = true; }
-            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15), BaseAddress = new Uri(config.RouterUrl.Trim().TrimEnd('/') + "/") };
-            http.DefaultRequestHeaders.Referrer = new Uri(baseUri, "/index.html");
-            http.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
-
-            await LoginAsync(http, config, ct);
-            var adCandidates = await AdCandidatesAsync(http, ct);
-            string? lastResult = null;
-            foreach (var ad in adCandidates)
-            {
-                var form = new Dictionary<string, string>
-                {
-                    ["isTest"] = "false", ["goformId"] = "SEND_SMS", ["notCallback"] = "true", ["Number"] = number.Trim(),
-                    ["sms_time"] = SmsTime(DateTimeOffset.Now), ["MessageBody"] = AtModem.Ucs2Hex(body), ["ID"] = "-1",
-                    ["encode_type"] = "UNICODE",
-                };
-                if (ad is not null) form["AD"] = ad;
-                lastResult = (await PostAsync(http, form, ct)).GetValueOrDefault("result");
-                if (lastResult == "success") break;
-            }
-            if (lastResult != "success") throw new AlertChannelException($"router refused the SMS (result={lastResult ?? "none"})");
-            await WaitForSendResultAsync(http, ct);
-            try { await PostAsync(http, new Dictionary<string, string> { ["isTest"] = "false", ["goformId"] = "LOGOUT" }, ct); }
-            catch (Exception e) when (e is AlertChannelException or HttpRequestException or TaskCanceledException) { /* best effort */ }
+            using var http = CreateClient(root);
+            var salt = await TryUbusSaltAsync(http, ct);
+            if (salt is not null) await SendViaUbusAsync(http, root, salt, config, number.Trim(), body, ct);
+            else await SendViaGoformAsync(http, root, config, number.Trim(), body, ct);
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException
+                                      or CryptographicException or FormatException)
         {
             throw new AlertChannelException($"router {baseUri.Host}: {e.Message}");
         }
@@ -241,7 +229,169 @@ public sealed class ZteRouterSmsSender(Func<HttpMessageHandler>? handlerFactory 
         }
     }
 
-    private static async Task LoginAsync(HttpClient http, SmsConfig config, CancellationToken ct)
+    private HttpClient CreateClient(string root)
+    {
+        var handler = handlerFactory?.Invoke() ?? new HttpClientHandler
+        {
+            CookieContainer = new System.Net.CookieContainer(),
+            UseCookies = true,
+            // The router's HTTPS certificate is self-signed: accepted only for private LAN addresses.
+            ServerCertificateCustomValidationCallback = (request, _, _, errors) =>
+                errors == System.Net.Security.SslPolicyErrors.None || IsPrivateAddress(request.RequestUri?.Host),
+        };
+        var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(20), BaseAddress = new Uri(root + "/") };
+        http.DefaultRequestHeaders.Referrer = new Uri(root + "/");
+        return http;
+    }
+
+    public static bool IsPrivateAddress(string? host)
+    {
+        if (!System.Net.IPAddress.TryParse(host, out var ip)) return false;
+        var b = ip.MapToIPv4().GetAddressBytes();
+        return ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork || ip.IsIPv4MappedToIPv6
+            ? b[0] == 10 || (b[0] == 172 && b[1] is >= 16 and <= 31) || (b[0] == 192 && b[1] == 168) || (b[0] == 169 && b[1] == 254)
+            : ip.IsIPv6LinkLocal || ip.IsIPv6UniqueLocal;
+    }
+
+    // ------------------------------------------------------------------ G5 series: JSON-RPC on /ubus/
+
+    private static async Task<string?> TryUbusSaltAsync(HttpClient http, CancellationToken ct)
+    {
+        System.Text.Json.JsonElement info;
+        try
+        {
+            info = await UbusAsync(http, NullSession, "zwrt_web", "web_login_info", new { }, ct);
+        }
+        catch (Exception e) when (e is AlertChannelException or System.Text.Json.JsonException or HttpRequestException)
+        {
+            return null; // not this interface: try goform
+        }
+        if (!info.TryGetProperty("zte_web_sault", out var salt) || salt.GetString() is not { Length: > 0 } value) return null;
+        if (info.TryGetProperty("login_fail_num", out var left) && int.TryParse(left.ToString(), out var n) && n <= 0)
+            throw new AlertChannelException("router login locked after failed attempts; wait and retry");
+        return value;
+    }
+
+    private static async Task SendViaUbusAsync(HttpClient http, string root, string salt, SmsConfig config, string number,
+        string body, CancellationToken ct)
+    {
+        var login = await UbusAsync(http, NullSession, "zwrt_web", "web_login",
+            new { password = Sha256Upper(Sha256Upper(config.RouterPassword ?? "") + salt) }, ct);
+        var result = login.TryGetProperty("result", out var r) ? r.ToString() : null;
+        if (result != "0" || !login.TryGetProperty("ubus_rpc_session", out var sessionProp) || sessionProp.GetString() is not { } session)
+            throw new AlertChannelException(result switch
+            {
+                "3" => "another user is logged in to the router's web page; log out there and retry",
+                _ => $"router login refused (wrong password?) (result={result ?? "none"})",
+            });
+        try
+        {
+            // Key exchange: the router's RSA public key protects a fresh AES-256 key.
+            var crt = await UbusAsync(http, session, "zwrt_web", "web_crt_get", new { }, ct);
+            var pem = crt.GetProperty("result").GetString() ?? "";
+            var der = Convert.FromBase64String(pem.Replace("-----BEGIN PUBLIC KEY-----", "").Replace("-----END PUBLIC KEY-----", "")
+                .Replace("\n", "").Replace("\r", "").Trim());
+            using var rsa = RSA.Create();
+            rsa.ImportSubjectPublicKeyInfo(der, out _);
+            var key = RandomNumberGenerator.GetBytes(32);
+            var enstr = Convert.ToBase64String(rsa.Encrypt(Encoding.ASCII.GetBytes(Convert.ToHexStringLower(key)), RSAEncryptionPadding.Pkcs1));
+            await UbusAsync(http, session, "zwrt_web", "web_http_enstr_set", new { web_enstr = enstr }, ct);
+
+            await UbusAsync(http, session, "zwrt_wms", "zte_libwms_send_sms", new
+            {
+                number = AesGcmEncrypt(key, number),
+                sms_time = SmsTime(DateTimeOffset.Now),
+                message_body = AesGcmEncrypt(key, AtModem.Ucs2Hex(body)),
+                id = "-1",
+                encode_type = "UNICODE",
+            }, ct);
+            for (int i = 0; i < 60; i++)
+            {
+                await Task.Delay(1000, ct);
+                var status = await UbusAsync(http, session, "zwrt_wms", "zwrt_wms_get_cmd_status", new { sms_cmd = 4 }, ct);
+                var code = status.TryGetProperty("sms_cmd_status_result", out var c) ? c.ToString() : null;
+                if (code == "3") return;
+                if (code == "2") throw new AlertChannelException("router reports the SMS was not sent (network or SIM credit)");
+            }
+            throw new AlertChannelException("router did not confirm the SMS within 60 s");
+        }
+        finally
+        {
+            try { await UbusAsync(http, session, "zwrt_web", "web_logout", new { }, CancellationToken.None); }
+            catch (Exception e) when (e is AlertChannelException or HttpRequestException or TaskCanceledException or System.Text.Json.JsonException) { }
+        }
+    }
+
+    private static int _rpcId;
+
+    /// <summary>One JSON-RPC call; returns the data object of <c>result: [0, {...}]</c>.</summary>
+    private static async Task<System.Text.Json.JsonElement> UbusAsync(HttpClient http, string session, string obj, string method,
+        object args, CancellationToken ct)
+    {
+        var request = new[] { new { jsonrpc = "2.0", id = Interlocked.Increment(ref _rpcId), method = "call",
+            @params = new object[] { session, obj, method, args } } };
+        using var response = await http.PostAsJsonAsync($"ubus/?t={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", request, ct);
+        if (!response.IsSuccessStatusCode) throw new AlertChannelException($"router HTTP {(int)response.StatusCode} on {obj}.{method}");
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        var root = doc.RootElement;
+        var item = root.ValueKind == System.Text.Json.JsonValueKind.Array && root.GetArrayLength() > 0 ? root[0] : root;
+        if (item.ValueKind != System.Text.Json.JsonValueKind.Object) throw new AlertChannelException("not a JSON-RPC answer");
+        if (item.TryGetProperty("error", out var err))
+            throw new AlertChannelException($"router {obj}.{method}: {(err.TryGetProperty("message", out var m) ? m.GetString() : "error")}");
+        if (!item.TryGetProperty("result", out var result) || result.ValueKind != System.Text.Json.JsonValueKind.Array
+            || result.GetArrayLength() == 0 || result[0].ValueKind != System.Text.Json.JsonValueKind.Number)
+            throw new AlertChannelException("not a JSON-RPC answer");
+        var code = result[0].GetInt32();
+        if (code != 0) throw new AlertChannelException($"router {obj}.{method} failed (code {code})");
+        return result.GetArrayLength() > 1 ? result[1].Clone() : System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone();
+    }
+
+    /// <summary>AES-256-GCM as the router expects: Base64(IV 12 bytes ‖ tag 16 bytes ‖ ciphertext).</summary>
+    public static string AesGcmEncrypt(byte[] key, string plaintext)
+    {
+        var data = Encoding.UTF8.GetBytes(plaintext);
+        var iv = RandomNumberGenerator.GetBytes(12);
+        var tag = new byte[16];
+        var cipher = new byte[data.Length];
+        using (var aes = new AesGcm(key, 16)) aes.Encrypt(iv, data, cipher, tag);
+        return Convert.ToBase64String([.. iv, .. tag, .. cipher]);
+    }
+
+    public static string AesGcmDecrypt(byte[] key, string b64)
+    {
+        var all = Convert.FromBase64String(b64);
+        var plain = new byte[all.Length - 28];
+        using (var aes = new AesGcm(key, 16)) aes.Decrypt(all.AsSpan(0, 12), all.AsSpan(28), all.AsSpan(12, 16), plain);
+        return Encoding.UTF8.GetString(plain);
+    }
+
+    // ------------------------------------------------------------------ older models: goform
+
+    private static async Task SendViaGoformAsync(HttpClient http, string root, SmsConfig config, string number, string body,
+        CancellationToken ct)
+    {
+        http.DefaultRequestHeaders.Referrer = new Uri(root + "/index.html");
+        await GoformLoginAsync(http, config, ct);
+        string? lastResult = null;
+        foreach (var ad in await AdCandidatesAsync(http, ct))
+        {
+            var form = new Dictionary<string, string>
+            {
+                ["isTest"] = "false", ["goformId"] = "SEND_SMS", ["notCallback"] = "true", ["Number"] = number,
+                ["sms_time"] = SmsTime(DateTimeOffset.Now), ["MessageBody"] = AtModem.Ucs2Hex(body), ["ID"] = "-1",
+                ["encode_type"] = "UNICODE",
+            };
+            if (ad is not null) form["AD"] = ad;
+            lastResult = (await PostAsync(http, form, ct)).GetValueOrDefault("result");
+            if (lastResult == "success") break;
+        }
+        if (lastResult != "success") throw new AlertChannelException($"router refused the SMS (result={lastResult ?? "none"})");
+        await WaitForGoformResultAsync(http, ct);
+        try { await PostAsync(http, new Dictionary<string, string> { ["isTest"] = "false", ["goformId"] = "LOGOUT" }, ct); }
+        catch (Exception e) when (e is AlertChannelException or HttpRequestException or TaskCanceledException) { /* best effort */ }
+    }
+
+    private static async Task GoformLoginAsync(HttpClient http, SmsConfig config, CancellationToken ct)
     {
         var ld = (await GetAsync(http, "LD", ct)).GetValueOrDefault("LD") ?? "";
         var password = config.RouterPassword ?? "";
@@ -276,7 +426,7 @@ public sealed class ZteRouterSmsSender(Func<HttpMessageHandler>? handlerFactory 
     }
 
     /// <summary>Asks the router whether the SMS left (sms_cmd 4: 3 = sent, 2 = failed); unknown answers count as sent.</summary>
-    private static async Task WaitForSendResultAsync(HttpClient http, CancellationToken ct)
+    private static async Task WaitForGoformResultAsync(HttpClient http, CancellationToken ct)
     {
         for (int i = 0; i < 10; i++)
         {
@@ -321,9 +471,9 @@ public sealed class ZteRouterSmsSender(Func<HttpMessageHandler>? handlerFactory 
         now.ToString("yy;MM;dd;HH;mm;ss;", CultureInfo.InvariantCulture) +
         (now.Offset >= TimeSpan.Zero ? "+" : "-") + Math.Abs(now.Offset.TotalHours).ToString("0.##", CultureInfo.InvariantCulture);
 
-    public static string Sha256Upper(string s) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(s)));
+    public static string Sha256Upper(string s) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(s)));
     private static string Sha256Lower(string s) => Sha256Upper(s).ToLowerInvariant();
-    public static string Md5Lower(string s) => Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(Encoding.UTF8.GetBytes(s)));
+    public static string Md5Lower(string s) => Convert.ToHexStringLower(MD5.HashData(Encoding.UTF8.GetBytes(s)));
 }
 
 /// <summary>

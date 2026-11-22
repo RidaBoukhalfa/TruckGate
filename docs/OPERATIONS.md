@@ -82,22 +82,29 @@ rate card for utility messages in your country) and needs a one-time setup:
 If the test fails, the message shows Meta's error code (for example 132001 = template name or language
 does not exist, 131030 = recipient not allowed while the app is in development mode, 190 = token expired).
 
-### SMS through the ZTE 5G router (no internet needed)
+### SMS through the ZTE G5C router (no internet needed)
 
 The SIM in the router sends the SMS, the way the router's own web page does. ZTE does not document this
-interface and it differs between models and firmware versions, so **test it on your router**:
+interface. Two families exist and TruckGate detects which one the router speaks:
+
+- **G5 series (G5C, G5TS…)**: encrypted JSON-RPC on `https://<router>/ubus/` — salted SHA-256 login, an
+  AES-256-GCM key exchanged with the router's RSA key, number and text encrypted;
+- **older models (MF / MU / MC series)**: `/goform/` form requests.
+
+The router's HTTPS certificate is self-signed; TruckGate accepts it only for private LAN addresses
+(192.168.x.x, 10.x.x.x, 172.16–31.x.x).
 
 1. Put a SIM with SMS credit in the router and check, from the router's web page, that you can send an
-   SMS by hand.
-2. *Settings*: SMS transport `ZTE_ROUTER`, router address (the page you open to manage it, often
-   `http://192.168.0.1`), router user only if the login page asks for one, recipients, enable; save the
-   router password; **Test SMS**.
-3. If the test reports *router refused the SMS* or a login error with the right password, send the model
-   and the *firmware version* (router page → device information) so the protocol can be adjusted. Until
-   then use WhatsApp/Telegram, or a USB GSM modem (transport `MODEM`).
-
-SMS go only for the chosen minimum severity (default: critical), at most 10 per hour, 70 Arabic characters
-each.
+   SMS by hand. Note the address of that page (on the label; for the G5 series usually
+   `https://192.168.0.1`).
+2. *Settings*: SMS transport `ZTE_ROUTER`, router address exactly as you open it (with `https://`),
+   router user only if the login page asks for one, recipients, enable; save the router password;
+   **Test SMS**.
+3. **Log out of the router's web page first**: the router allows one web session, so TruckGate cannot log
+   in while someone is logged in there (the test then says so).
+4. If the test still fails, the message names the step (login, key exchange, send). Send that message and
+   the *firmware version* (router page → device information) so the protocol can be adjusted. Until then
+   WhatsApp carries the alerts; a USB GSM modem (transport `MODEM`) is the other fallback.
 
 ### USB GSM modem (alternative)
 

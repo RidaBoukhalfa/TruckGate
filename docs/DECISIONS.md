@@ -111,4 +111,7 @@ labeled frames kept permanently; trip evidence kept per accounting rules.
 |---|---|
 | Price per trip | 1400.00 DZD (set in *Settings* → `trip.price_per_trip`) |
 | Factory internet | Yes — WhatsApp is the main alert channel |
-| Router / modem | ZTE 5G router — SMS through its web interface, to be confirmed with the Test button |
+| Router / modem | ZTE **G5C** — SMS through its web interface (G5-series JSON-RPC, goform as fallback), to be confirmed with the Test button |
+
+Router protocols were implemented from public descriptions of the routers' web interfaces; no third-party
+source code is included in TruckGate.
