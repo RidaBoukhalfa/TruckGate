@@ -5,6 +5,7 @@ import android.content.Context
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Bundle
 import android.os.Looper
 import android.os.SystemClock
 import dz.truckgate.quarry.core.GpsFix
@@ -30,6 +31,15 @@ class GpsTracker(context: Context) : LocationListener {
     override fun onLocationChanged(location: Location) {
         last = location
     }
+
+    // Before Android 11 these three are abstract in LocationListener (default methods only from
+    // API 30): without them Android 8-10 throws AbstractMethodError when GPS status changes.
+    @Deprecated("Called only before Android 10")
+    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
+
+    override fun onProviderEnabled(provider: String) = Unit
+
+    override fun onProviderDisabled(provider: String) = Unit
 
     /** The latest fix with its age measured on the monotonic clock. */
     fun latestFix(): GpsFix? {
