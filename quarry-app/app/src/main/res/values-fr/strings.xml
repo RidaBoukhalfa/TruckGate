@@ -84,4 +84,21 @@
     <string name="last_sync">Dernière synchro : %1$s</string>
     <string name="sync_done">%1$d bons et %2$d photos envoyés — paramètres v%3$d</string>
     <string name="sync_rejected">Le serveur a refusé %1$d bons — prévenez le superviseur</string>
+
+    <!-- connection to the factory server -->
+    <string name="test_connection">Tester la connexion</string>
+    <string name="change_server_address">Changer l\'adresse du serveur</string>
+    <string name="connection_ok">Connexion au serveur OK : %1$s</string>
+    <string name="clock_skew">Attention : l\'horloge du téléphone diffère de celle du serveur d\'environ %1$d min. Activez la date et l\'heure automatiques.</string>
+    <string name="net_refused">Impossible de joindre le serveur %1$s.\nVérifiez que le téléphone est sur le Wi‑Fi de l\'usine, que le PC serveur est allumé, que le service TruckGate tourne et que le pare-feu Windows autorise le port 5080.</string>
+    <string name="net_no_route">Le téléphone ne voit pas le serveur %1$s sur le réseau.\nVérifiez qu\'il est sur le Wi‑Fi de l\'usine (pas les données mobiles).</string>
+    <string name="net_timeout">Délai dépassé pour le serveur %1$s.\nLe serveur ne répond pas : vérifiez le Wi‑Fi et que l\'adresse IP du serveur n\'a pas changé.</string>
+    <string name="net_unknown_host">Nom de serveur inconnu : %1$s.\nUtilisez une adresse IP fixe (par ex. http://192.168.1.10:5080).</string>
+    <string name="net_tls">Échec de la connexion sécurisée à %1$s (certificat invalide).</string>
+    <string name="net_server_error">Le serveur a répondu par une erreur : %1$s</string>
+    <string name="address_changed">Adresse du serveur changée en %1$s ; la connexion fonctionne.</string>
+    <string name="address_not_changed">L\'adresse n\'a pas été changée.</string>
+    <string name="address_wrong_server">Ce code ne vient pas du serveur de cette usine : refusé.</string>
+    <string name="address_not_a_code">Ce n\'est pas un code d\'adresse du serveur. Affichez-le depuis l\'administration : Téléphones → Adresse du serveur.</string>
+    <string name="address_old_code">Ce code est plus ancien que l\'adresse actuelle : refusé. Affichez un nouveau code.</string>
 </resources>

@@ -35,6 +35,37 @@ data class EnrollmentInvite(val serverUrl: String, val token: String, val server
     }
 }
 
+/**
+ * New server address for phones enrolled before the server's address changed (for example after the
+ * server PC got a new IP). Shown as a QR by the admin screen and accepted only when signed by this
+ * factory's server key, which the phone received at enrollment — so nobody can point the phones at
+ * another computer with a QR of their own.
+ *   QR = `TGA1|<url>|<unix seconds>|<base64 raw r||s over "TGA1|<url>|<unix seconds>">`
+ */
+data class ServerAddress(val serverUrl: String, val issuedAt: Long) {
+    companion object {
+        private const val PREFIX = "TGA1"
+
+        fun parseAndVerify(text: String, serverKeySpki: ByteArray): ServerAddress {
+            val parts = text.trim().split('|')
+            if (parts.size != 4 || parts[0] != PREFIX) throw IllegalArgumentException("not a TruckGate server-address code")
+            val url = parts[1].trimEnd('/')
+            if (!(url.startsWith("http://") || url.startsWith("https://")) || url.length < 12)
+                throw IllegalArgumentException("bad server url")
+            val issuedAt = parts[2].toLongOrNull()?.takeIf { it > 0 } ?: throw IllegalArgumentException("bad time")
+            val signature = try {
+                Base64.getDecoder().decode(parts[3])
+            } catch (e: IllegalArgumentException) {
+                throw IllegalArgumentException("bad signature")
+            }
+            val signed = "$PREFIX|${parts[1]}|${parts[2]}".toByteArray(Charsets.UTF_8)
+            if (!EcdsaP256.verify(serverKeySpki, signed, signature))
+                throw SecurityException("this code was not signed by this factory's server")
+            return ServerAddress(url, issuedAt)
+        }
+    }
+}
+
 /** Server-signed configuration: the signature covers the exact UTF-8 bytes of [payload]. */
 object SignedConfig {
     fun verify(payload: String, signatureBase64: String, serverKeySpki: ByteArray): Boolean = try {

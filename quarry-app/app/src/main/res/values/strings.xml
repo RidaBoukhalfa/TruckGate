@@ -84,4 +84,21 @@
     <string name="last_sync">آخر مزامنة: %1$s</string>
     <string name="sync_done">أُرسلت %1$d تذكرة و%2$d صورة — الإعدادات v%3$d</string>
     <string name="sync_rejected">رفض الخادم %1$d تذكرة — أبلغ المشرف</string>
+
+    <!-- connection to the factory server -->
+    <string name="test_connection">اختبار الاتصال بالخادم</string>
+    <string name="change_server_address">تغيير عنوان الخادم</string>
+    <string name="connection_ok">الاتصال بالخادم يعمل: %1$s</string>
+    <string name="clock_skew">تنبيه: ساعة الهاتف تختلف عن ساعة الخادم بحوالي %1$d دقيقة. اضبط التاريخ والوقت تلقائيًا.</string>
+    <string name="net_refused">تعذّر الاتصال بالخادم %1$s.\nتأكد أن الهاتف متصل بشبكة Wi‑Fi المصنع، وأن حاسوب الخادم يعمل، وأن خدمة TruckGate تعمل عليه، وأن جدار حماية Windows يسمح بالمنفذ 5080.</string>
+    <string name="net_no_route">الهاتف لا يرى الخادم %1$s على الشبكة.\nتأكد أن الهاتف على نفس شبكة Wi‑Fi المصنع (وليس بيانات الهاتف المحمول).</string>
+    <string name="net_timeout">انتهت مهلة الاتصال بالخادم %1$s.\nالخادم لا يجيب: تحقق من شبكة Wi‑Fi، ومن أن عنوان IP للخادم لم يتغيّر.</string>
+    <string name="net_unknown_host">اسم الخادم غير معروف: %1$s.\nاستعمل عنوان IP ثابتًا للخادم (مثل http://192.168.1.10:5080).</string>
+    <string name="net_tls">فشل الاتصال الآمن بالخادم %1$s (شهادة غير صالحة).</string>
+    <string name="net_server_error">ردّ الخادم بخطأ: %1$s</string>
+    <string name="address_changed">تم تغيير عنوان الخادم إلى %1$s، والاتصال يعمل.</string>
+    <string name="address_not_changed">لم يُغيَّر العنوان.</string>
+    <string name="address_wrong_server">هذا الرمز ليس من خادم هذا المصنع، تم رفضه.</string>
+    <string name="address_not_a_code">هذا ليس رمز عنوان الخادم. اعرضه من شاشة الإدارة: هواتف المقلع ← عنوان الخادم.</string>
+    <string name="address_old_code">هذا الرمز أقدم من العنوان الحالي، تم رفضه. اعرض رمزًا جديدًا.</string>
 </resources>

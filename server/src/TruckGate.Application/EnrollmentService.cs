@@ -24,6 +24,8 @@ public sealed record DeviceAuthHeaders(int DeviceId, long UnixTime, string Signa
 
 public sealed record SignedDeviceConfig(string Payload, string Signature, int Version);
 
+public sealed record ServerAddressCode(string Url, string QrText);
+
 /// <summary>
 /// Quarry phone onboarding and configuration:
 ///  1. an admin creates a one-time enrollment code (QR) that also carries the server public key;
@@ -49,6 +51,18 @@ public sealed class EnrollmentService(Db db, ServerSigningKey serverKey, Enrollm
             var qr = $"TGE1|{options.PublicServerUrl}|{token}|{Convert.ToBase64String(serverKey.PublicKeySpki)}";
             return new EnrollmentInvite(qr, expiresAt);
         }, ct);
+    }
+
+    /// <summary>
+    /// QR that moves already-enrolled phones to the current Server:PublicUrl (after the server PC's
+    /// address changed): <c>TGA1|url|unix seconds|signature</c>, signed with the server key the phones
+    /// received at enrollment. Phones refuse a code older than the last one they accepted.
+    /// </summary>
+    public ServerAddressCode CreateServerAddressCode(long unixSeconds)
+    {
+        var body = $"TGA1|{options.PublicServerUrl}|{unixSeconds}";
+        var signature = Convert.ToBase64String(serverKey.Sign(Encoding.UTF8.GetBytes(body)));
+        return new ServerAddressCode(options.PublicServerUrl, $"{body}|{signature}");
     }
 
     public Task<EnrollResult> EnrollAsync(EnrollRequest req, CancellationToken ct = default)

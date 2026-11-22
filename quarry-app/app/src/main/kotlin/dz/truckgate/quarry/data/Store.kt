@@ -46,6 +46,7 @@ object Keys {
     const val K_REVOKED = "revoked"
     const val K_PRINTER = "printer_address"
     const val K_PAPER = "paper_width"
+    const val K_ADDRESS_ISSUED_AT = "server_address_issued_at"
 }
 
 /**

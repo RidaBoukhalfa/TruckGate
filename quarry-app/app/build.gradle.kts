@@ -13,13 +13,28 @@ android {
         // Android 11+: per-use biometric keys (setUserAuthenticationParameters).
         minSdk = 30
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 100
+        versionName = "1.0.0"
+    }
+
+    // Release signing comes only from the build environment (CI secrets), never from the repository:
+    // TRUCKGATE_KEYSTORE (path), TRUCKGATE_KEYSTORE_PASSWORD, TRUCKGATE_KEY_ALIAS, TRUCKGATE_KEY_PASSWORD.
+    val keystore = System.getenv("TRUCKGATE_KEYSTORE")?.takeIf { it.isNotBlank() && file(it).exists() }
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("TRUCKGATE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("TRUCKGATE_KEY_ALIAS")
+                keyPassword = System.getenv("TRUCKGATE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
 

@@ -395,10 +395,19 @@ private fun TicketDetailScreen(vm: QuarryViewModel, activity: FragmentActivity) 
 
 @Composable
 private fun SettingsScreen(vm: QuarryViewModel) {
-    BackHandler { vm.go(Screen.Home) }
     val printers = remember { vm.pairedPrinters() }
     var chosen by remember { mutableStateOf(vm.printerAddress) }
     var paper by remember { mutableStateOf(vm.paper) }
+    var scanningAddress by remember { mutableStateOf(false) }
+    if (scanningAddress) {
+        BackHandler { scanningAddress = false }
+        QrScanner(Modifier.fillMaxSize()) { text ->
+            scanningAddress = false
+            vm.changeServerAddress(text)
+        }
+        return
+    }
+    BackHandler { vm.go(Screen.Home) }
     Page {
         Title(stringResource(R.string.settings_title))
         Text(stringResource(R.string.device_info, vm.deviceId ?: 0, vm.serverUrl.orEmpty()), fontSize = 14.sp)
@@ -420,6 +429,8 @@ private fun SettingsScreen(vm: QuarryViewModel) {
         }
         SecondaryButton(stringResource(R.string.test_print), vm::testPrint, enabled = chosen != null)
         SecondaryButton(stringResource(R.string.sync_now), vm::syncNow)
+        SecondaryButton(stringResource(R.string.test_connection), vm::testConnection)
+        SecondaryButton(stringResource(R.string.change_server_address), { scanningAddress = true })
         SecondaryButton(stringResource(R.string.back), { vm.go(Screen.Home) })
     }
 }

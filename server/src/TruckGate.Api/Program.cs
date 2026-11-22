@@ -1,9 +1,12 @@
+using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Hosting.WindowsServices;
+using Microsoft.Extensions.Logging.EventLog;
 using Npgsql;
 using TruckGate.Api;
 using TruckGate.Application;
@@ -11,7 +14,39 @@ using TruckGate.Application.Alerts;
 using TruckGate.Application.Cameras;
 using TruckGate.Data;
 
-var builder = WebApplication.CreateBuilder(args);
+// Under the Windows service manager the working directory is System32, so the program folder
+// (appsettings.json, wwwroot) is taken from the executable's location instead.
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = WindowsServiceHelpers.IsWindowsService() ? AppContext.BaseDirectory : null,
+});
+
+// Site configuration (database passwords, the address phones use, data folder) lives outside the
+// program folder so that an upgrade never overwrites it: TRUCKGATE_CONFIG, or on Windows
+// %ProgramData%\TruckGate\config\appsettings.json (written by the installer). Environment variables
+// and the command line still win over it.
+var siteConfig = Environment.GetEnvironmentVariable("TRUCKGATE_CONFIG");
+if (string.IsNullOrEmpty(siteConfig) && OperatingSystem.IsWindows())
+    siteConfig = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "TruckGate", "config", "appsettings.json");
+if (!string.IsNullOrEmpty(siteConfig))
+{
+    builder.Configuration.AddJsonFile(siteConfig, optional: true, reloadOnChange: false);
+    builder.Configuration.AddEnvironmentVariables();
+    builder.Configuration.AddCommandLine(args);
+}
+
+if (OperatingSystem.IsWindows())
+{
+    builder.Services.Configure<EventLogSettings>(s => s.SourceName = "TruckGate");
+    builder.Services.AddWindowsService(o => o.ServiceName = "TruckGate");
+}
+if (builder.Configuration["Logging:File:Path"] is { Length: > 0 } logDirectory)
+    builder.Logging.AddProvider(new FileLoggerProvider(logDirectory));
+
+var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+              ?? typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown";
 
 var appConnection = builder.Configuration.GetConnectionString("App")
                     ?? throw new InvalidOperationException("ConnectionStrings:App is required.");
@@ -113,7 +148,22 @@ var app = builder.Build();
 if (!string.IsNullOrEmpty(ownerConnection))
 {
     await using var owner = NpgsqlDataSource.Create(ownerConnection);
-    foreach (var name in await DbMigrator.MigrateAsync(owner)) app.Logger.LogInformation("Applied migration {Migration}", name);
+    var applied = await DbMigrator.MigrateAsync(owner);
+    foreach (var name in applied) app.Logger.LogInformation("Applied migration {Migration}", name);
+    if (args.Length > 0 && args[0] == "migrate")
+    {
+        Console.WriteLine(applied.Count == 0 ? "Database is up to date." : $"Applied {applied.Count} migration(s).");
+        return;
+    }
+}
+
+// `TruckGate.Api migrate` — used by the installer and for upgrades. The owner connection is given only
+// for this run (environment variable ConnectionStrings__Owner) and is never stored for the service.
+if (args.Length > 0 && args[0] == "migrate")
+{
+    Console.Error.WriteLine("migrate needs ConnectionStrings:Owner (e.g. environment variable ConnectionStrings__Owner).");
+    Environment.ExitCode = 2;
+    return;
 }
 
 if (args.Length > 0 && args[0] == "create-admin")
@@ -169,7 +219,24 @@ app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+// Used by the installer, the gate-station launcher and the "change server address" tool to tell
+// "server not reachable" apart from "server running but database down".
+app.MapGet("/health", async (Db db, CancellationToken ct) =>
+{
+    try
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        await db.ReadAsync(c => Dapper.SqlMapper.ExecuteScalarAsync<int>(c, new Dapper.CommandDefinition("SELECT 1",
+            cancellationToken: timeout.Token)), timeout.Token);
+        return Results.Ok(new { status = "ok", service = "truckgate", version, database = "ok" });
+    }
+    catch (Exception e) when (e is NpgsqlException or OperationCanceledException or TimeoutException or System.Net.Sockets.SocketException)
+    {
+        return Results.Json(new { status = "degraded", service = "truckgate", version, database = "unreachable" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+});
 app.MapAuthEndpoints();
 app.MapGateEndpoints();
 app.MapAdminEndpoints();

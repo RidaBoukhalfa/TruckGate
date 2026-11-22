@@ -172,7 +172,28 @@ public class HttpTests(DatabaseFixture fx)
         // the admin creates an enrollment code; the phone enrolls with its two keys (no session, no CSRF)
         await Json(await Post(client, "/api/auth/login", new { username = "boss", secret = "a-long-password" }));
         var invite = await Json(await Post(client, "/api/admin/enrollments", new { label = "Quarry phone" }));
+
+        // the "new server address" QR is signed with the key phones receive in the enrollment code
+        var address = await Json(await client.GetAsync("/api/admin/server-address"));
+        Assert.Equal("http://test.local:5080", address.GetProperty("url").GetString());
+        var addressParts = address.GetProperty("qrText").GetString()!.Split('|');
+        Assert.Equal(new[] { "TGA1", "http://test.local:5080" }, addressParts[..2]);
+        using (var serverKey = System.Security.Cryptography.ECDsa.Create())
+        {
+            serverKey.ImportSubjectPublicKeyInfo(Convert.FromBase64String(invite.GetProperty("qrText").GetString()!.Split('|')[3]), out _);
+            Assert.True(serverKey.VerifyData(System.Text.Encoding.UTF8.GetBytes(string.Join('|', addressParts[..3])),
+                Convert.FromBase64String(addressParts[3]), System.Security.Cryptography.HashAlgorithmName.SHA256,
+                System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+        }
         await Post(client, "/api/auth/logout", new { });
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/admin/server-address")).StatusCode);
+
+        // health: no login needed; says which program answers and whether its database is reachable
+        var health = await Json(await client.GetAsync("/health"));
+        Assert.Equal("ok", health.GetProperty("status").GetString());
+        Assert.Equal("truckgate", health.GetProperty("service").GetString());
+        Assert.Equal("ok", health.GetProperty("database").GetString());
+        Assert.StartsWith("1.", health.GetProperty("version").GetString());
         using var phone = new QuarryPhone(0);
         using var auth = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
         var phoneClient = server.CreateClient();

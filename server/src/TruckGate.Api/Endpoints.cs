@@ -166,6 +166,8 @@ internal static partial class Endpoints
         });
         admin.MapPost("/enrollments", async (InviteRequest r, EnrollmentService svc, HttpContext ctx, CancellationToken ct) =>
             Results.Ok(await svc.CreateInviteAsync(r.Label, ctx.Actor(), ct)));
+        admin.MapGet("/server-address", (EnrollmentService svc) =>
+            Results.Ok(svc.CreateServerAddressCode(DateTimeOffset.UtcNow.ToUnixTimeSeconds())));
 
         // sites and gates
         admin.MapGet("/sites", async (AdminService svc, CancellationToken ct) => Results.Ok(await svc.ListSitesAsync(ct)));

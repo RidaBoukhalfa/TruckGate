@@ -174,6 +174,7 @@ export interface Device {
   id: number; kind: string; label: string; enrolledAt: string; revokedAt: string | null; revokeReason: string | null; lastSyncAt: string | null
 }
 export interface Invite { qrText: string; expiresAt: string }
+export interface ServerAddressCode { url: string; qrText: string }
 export interface Truck { id: number; fleetNumber: string; model: string | null; plate: string | null; defaultDriverId: number | null; active: boolean }
 export interface Driver { id: number; fullName: string; phone: string | null; employmentType: string; active: boolean }
 export interface Site { id: number; code: string; name: string; kind: 'QUARRY' | 'FACTORY'; hasGeofence: boolean }

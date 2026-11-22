@@ -1,0 +1,309 @@
+name: Release build (Android APK + Windows installer)
+
+# Builds the two installable files, tests them, and attaches them to a DRAFT GitHub release.
+# A draft is visible only to people with write access to this repository; nothing here publishes
+# a public release. Trigger: push a tag v* (or run by hand).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TG_VERSION: "1.0.0"
+  PG_VERSION: "16.16"
+  # EnterpriseDB "PostgreSQL binaries" zip for Windows x64 (linked from postgresql.org/download/windows)
+  PG_URL: https://sbp.enterprisedb.com/getfile.jsp?fileid=1260731
+  VC_REDIST_URL: https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+jobs:
+  android:
+    name: Android APK (unit tests, build, inspect)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - run: mkdir -p apk-out
+      - name: Unit tests (ticket format conformance, quarry rules)
+        working-directory: quarry-app
+        run: ./gradlew :ticket-format:test :quarry-core:test --no-daemon 2>&1 | tee ../apk-out/unit-tests.log
+      - name: Summarise unit tests
+        run: |
+          python3 - <<'EOF' | tee apk-out/unit-tests-summary.txt
+          import glob, xml.etree.ElementTree as ET
+          t = f = e = s = 0
+          for p in glob.glob('quarry-app/*/build/test-results/test/*.xml'):
+              r = ET.parse(p).getroot()
+              t += int(r.get('tests')); f += int(r.get('failures')); e += int(r.get('errors')); s += int(r.get('skipped'))
+              print(f"{r.get('name')}: tests={r.get('tests')} failures={r.get('failures')} errors={r.get('errors')}")
+          print(f"TOTAL tests={t} failures={f} errors={e} skipped={s}")
+          EOF
+      - name: Build debug APK
+        working-directory: quarry-app
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee ../apk-out/build-debug.log
+      - name: Release signing key (only if the repository has the secrets)
+        id: keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.TRUCKGATE_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No release signing secrets: the APK is the debug build (signed with this runner's debug key)."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build signed release APK
+        if: steps.keystore.outputs.release == 'true'
+        working-directory: quarry-app
+        env:
+          TRUCKGATE_KEYSTORE: ${{ runner.temp }}/release.jks
+          TRUCKGATE_KEYSTORE_PASSWORD: ${{ secrets.TRUCKGATE_KEYSTORE_PASSWORD }}
+          TRUCKGATE_KEY_ALIAS: ${{ secrets.TRUCKGATE_KEY_ALIAS }}
+          TRUCKGATE_KEY_PASSWORD: ${{ secrets.TRUCKGATE_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace 2>&1 | tee ../apk-out/build-release.log
+      - name: Collect and inspect APK
+        run: |
+          if [ "${{ steps.keystore.outputs.release }}" = "true" ]; then
+            cp quarry-app/app/build/outputs/apk/release/app-release.apk apk-out/TruckGate-Quarry.apk
+            echo "variant=release" > apk-out/apk-variant.txt
+          else
+            cp quarry-app/app/build/outputs/apk/debug/app-debug.apk apk-out/TruckGate-Quarry.apk
+            echo "variant=debug" > apk-out/apk-variant.txt
+          fi
+          rm -f "$RUNNER_TEMP/release.jks"
+          bash .github/scripts/inspect-apk.sh apk-out/TruckGate-Quarry.apk | tee apk-out/apk-inspection.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android
+          path: apk-out/
+          if-no-files-found: error
+
+  emulator:
+    name: APK on Android emulator (API ${{ matrix.api }})
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [30, 34]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: android
+          path: apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install, launch, permissions, enrollment screen
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: bash .github/scripts/emulator-test.sh apk/TruckGate-Quarry.apk ${{ matrix.api }} emulator-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: emulator-api${{ matrix.api }}
+          path: emulator-out/
+          if-no-files-found: warn
+
+  windows:
+    name: Windows installer (build, inspect, install test)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: PowerShell scripts parse in Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $bad = 0
+          foreach ($f in @(Get-ChildItem deploy/windows/scripts/*.ps1) + @(Get-ChildItem .github/scripts/*.ps1)) {
+            $tokens = $null; $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$errs) | Out-Null
+            foreach ($e in $errs) { Write-Host "$($f.Name):$($e.Extent.StartLineNumber): $($e.Message)"; $bad++ }
+          }
+          if ($bad) { exit 1 }
+          Write-Host 'All scripts parse.'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build web UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Publish server (Release, win-x64, self-contained)
+        run: |
+          New-Item -ItemType Directory out/info, out/test -Force | Out-Null
+          dotnet publish server/src/TruckGate.Api/TruckGate.Api.csproj -c Release -r win-x64 --self-contained true `
+            -p:Version=$env:TG_VERSION -o out/server 2>&1 | Tee-Object out/info/dotnet-publish.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (!(Test-Path out/server/wwwroot/index.html)) { throw 'wwwroot missing from the publish output' }
+          if (Test-Path out/server/appsettings.Development.json) { throw 'development settings must not be published' }
+          dotnet --info | Select-Object -First 12 | Out-File out/info/dotnet-info.txt
+      - name: PostgreSQL ${{ env.PG_VERSION }} binaries (download, verify signature and version)
+        run: |
+          $zip = "$env:RUNNER_TEMP\pg.zip"
+          curl.exe -L --fail --retry 3 --silent --show-error -o $zip $env:PG_URL
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Expand-Archive $zip "$env:RUNNER_TEMP\pgx"
+          $src = "$env:RUNNER_TEMP\pgx\pgsql"
+          $sig = Get-AuthenticodeSignature "$src\bin\postgres.exe"
+          if ($sig.Status -ne 'Valid') { throw "postgres.exe signature: $($sig.Status)" }
+          $ver = (& "$src\bin\postgres.exe" --version) -join ' '
+          if ($ver -notmatch [regex]::Escape($env:PG_VERSION)) { throw "unexpected version: $ver" }
+          New-Item -ItemType Directory out/pgsql/licenses -Force | Out-Null
+          foreach ($d in 'bin', 'lib', 'share') { Copy-Item "$src\$d" "out/pgsql/$d" -Recurse }
+          Get-ChildItem out/pgsql -Recurse -Include *.pdb, *.lib | Remove-Item
+          Get-ChildItem $src -Recurse -File | Where-Object { $_.Name -match '(?i)^(licen[cs]e|copying|notice)' } |
+            ForEach-Object { Copy-Item $_.FullName ("out/pgsql/licenses/" + $_.Directory.Name + "-" + $_.Name) -Force }
+          @(
+            "postgresql_version=$ver"
+            "postgresql_zip_sha256=$((Get-FileHash $zip -Algorithm SHA256).Hash)"
+            "postgresql_zip_bytes=$((Get-Item $zip).Length)"
+            "postgres_exe_signer=$($sig.SignerCertificate.Subject)"
+            "pgsql_bundled_bytes=$((Get-ChildItem out/pgsql -Recurse -File | Measure-Object Length -Sum).Sum)"
+          ) | Tee-Object out/info/postgresql.txt
+      - name: Microsoft Visual C++ runtime installer (download, verify signature)
+        run: |
+          New-Item -ItemType Directory out/redist -Force | Out-Null
+          curl.exe -L --fail --retry 3 --silent --show-error -o out/redist/vc_redist.x64.exe $env:VC_REDIST_URL
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $sig = Get-AuthenticodeSignature out/redist/vc_redist.x64.exe
+          if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'Microsoft Corporation') { throw "vc_redist signature: $($sig.Status)" }
+          @(
+            "vc_redist_version=$((Get-Item out/redist/vc_redist.x64.exe).VersionInfo.ProductVersion)"
+            "vc_redist_sha256=$((Get-FileHash out/redist/vc_redist.x64.exe -Algorithm SHA256).Hash)"
+            "vc_redist_signer=$($sig.SignerCertificate.Subject)"
+          ) | Tee-Object out/info/vc-redist.txt
+      - name: Documents shipped with the installer
+        run: |
+          New-Item -ItemType Directory out/docs -Force | Out-Null
+          Copy-Item release/INSTALLATION_GUIDE.md out/docs/
+      - name: Build installer (Inno Setup 6)
+        id: iscc
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Host }
+          & $iscc "/DAppVersion=$env:TG_VERSION" "/DSourceRoot=..\..\out" deploy\windows\TruckGate.iss 2>&1 | Tee-Object out/info/iscc.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $exe = Get-Item out/installer/TruckGate-Windows-Setup.exe
+          $b = [IO.File]::ReadAllBytes($exe.FullName); $pe = [BitConverter]::ToInt32($b, 0x3C)
+          $machine = '{0:X}' -f [BitConverter]::ToUInt16($b, $pe + 4)
+          @(
+            "inno_setup=$((Get-Item $iscc).VersionInfo.ProductVersion)"
+            "installer_bytes=$($exe.Length)"
+            "installer_sha256=$((Get-FileHash $exe -Algorithm SHA256).Hash)"
+            "installer_pe_machine=0x$machine"
+            "installer_authenticode=$((Get-AuthenticodeSignature $exe).Status)"
+          ) | Tee-Object out/info/installer.txt
+      - name: List installer contents (innoextract)
+        continue-on-error: true
+        run: |
+          choco install innoextract -y --no-progress | Out-Null
+          innoextract --list out/installer/TruckGate-Windows-Setup.exe > out/info/installer-contents.txt
+          if ($LASTEXITCODE) { "innoextract could not read this Inno Setup version" | Out-File out/info/installer-contents.txt }
+          Get-Content out/info/installer-contents.txt | Select-Object -Last 5
+      - name: Install / start / login / upgrade / uninstall test on this Windows machine
+        if: steps.iscc.outcome == 'success'
+        shell: powershell
+        run: |
+          Push-Location .github/scripts; npm install --no-save --no-audit --no-fund puppeteer-core@24 | Out-Host; Pop-Location
+          & .github/scripts/windows-smoke-test.ps1 -Installer out/installer/TruckGate-Windows-Setup.exe -Out out/test -Version $env:TG_VERSION
+          exit $LASTEXITCODE
+      - name: Server test suite on Windows, against the bundled PostgreSQL
+        if: always() && steps.iscc.outcome == 'success'
+        run: |
+          $pg = "$PWD\out\pgsql\bin"
+          & "$pg\initdb.exe" -D "$env:RUNNER_TEMP\pgtest" -U postgres -A trust -E UTF8 --locale=C | Out-Host
+          & "$pg\pg_ctl.exe" -D "$env:RUNNER_TEMP\pgtest" -o "-p 5444" -l "$env:RUNNER_TEMP\pgtest.log" -w start | Out-Host
+          $env:TRUCKGATE_TEST_PG = 'Host=127.0.0.1;Port=5444;Username=postgres;Password=unused'
+          # keep the tests away from the site configuration the installer test left in ProgramData
+          $env:TRUCKGATE_CONFIG = "$env:RUNNER_TEMP\no-site-config.json"
+          dotnet test server/tests/TruckGate.Crypto.Tests --logger "trx;LogFileName=crypto-tests.trx" --results-directory out/test 2>&1 | Tee-Object out/test/crypto-tests.log
+          $rc1 = $LASTEXITCODE
+          dotnet test server/tests/TruckGate.Server.Tests --logger "trx;LogFileName=server-tests.trx" --results-directory out/test 2>&1 | Tee-Object out/test/server-tests.log
+          $rc2 = $LASTEXITCODE
+          & "$pg\pg_ctl.exe" -D "$env:RUNNER_TEMP\pgtest" -m fast stop | Out-Host
+          foreach ($t in Get-ChildItem out/test -Filter *.trx) {
+            $c = ([xml](Get-Content $t.FullName)).TestRun.ResultSummary.Counters
+            "$($t.BaseName): total=$($c.total) passed=$($c.passed) failed=$($c.failed)" | Tee-Object -Append out/test/windows-dotnet-tests.txt
+          }
+          if ($rc1 -or $rc2) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows
+          path: |
+            out/installer/*.exe
+            out/info/
+            out/test/
+          if-no-files-found: warn
+
+  release:
+    name: Attach to a DRAFT release (not public)
+    needs: [android, emulator, windows]
+    if: always() && needs.android.result != 'cancelled' && needs.windows.result != 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Assemble files
+        run: |
+          mkdir -p upload
+          find dist -maxdepth 3 -type f | sort
+          cp dist/android/TruckGate-Quarry.apk upload/ 2>/dev/null || echo "no APK"
+          cp dist/windows/installer/TruckGate-Windows-Setup.exe upload/ 2>/dev/null || echo "no installer"
+          for d in dist/*/; do
+            n=$(basename "$d")
+            (cd "$d" && zip -qr "$GITHUB_WORKSPACE/upload/evidence-$n.zip" . -x '*.apk' -x '*.exe')
+          done
+          {
+            echo "run=${{ github.run_id }} attempt=${{ github.run_attempt }}"
+            echo "commit=${{ github.sha }} ref=${{ github.ref_name }}"
+            echo "android=${{ needs.android.result }}"
+            echo "emulator=${{ needs.emulator.result }}"
+            echo "windows=${{ needs.windows.result }}"
+            echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > upload/ci-status.txt
+          (cd upload && sha256sum * > SHA256SUMS.txt)
+          cat upload/ci-status.txt upload/SHA256SUMS.txt
+      - name: Upload to a draft release (never published by this workflow)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || TAG="build-$GITHUB_RUN_NUMBER"
+          for id in $(gh api "repos/$REPO/releases" --paginate --jq ".[] | select(.draft and .tag_name == \"$TAG\") | .id"); do
+            gh api -X DELETE "repos/$REPO/releases/$id"
+          done
+          gh release create "$TAG" upload/* --repo "$REPO" --draft --prerelease --target "$GITHUB_SHA" \
+            --title "TruckGate $TAG — test build (draft, not published)" \
+            --notes "Test build from commit $GITHUB_SHA. Android: debug APK unless release-signing secrets exist. Windows: unsigned installer. See ci-status.txt and the evidence zips."
