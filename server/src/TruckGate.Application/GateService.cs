@@ -18,6 +18,10 @@ public sealed record ScanEntryResult(
     long ScanId, long? TripId, string? TripNumber, string Outcome,
     IReadOnlyList<string> Reasons, IReadOnlyList<string> Notes, TicketSummary? Ticket);
 
+/// <summary>What the gatekeeper reads on screen for a scanned ticket.</summary>
+public sealed record TicketNames(string? FleetNumber, string? Plate, string? DriverName, bool DriverIsDefault,
+    string? OperatorName);
+
 public sealed record EntryDecisionResult(
     long TripId, string TripNumber, string State, string? LoadStatus, long? ReviewId, IReadOnlyList<string> ReviewReasons);
 
@@ -214,6 +218,17 @@ public sealed class GateService(Db db)
             return new EntryDecisionResult(trip.Id, trip.TripNumber, state, load, reviewId, reasons);
         }, ct);
     }
+
+    /// <summary>Fleet number, current plate, driver and quarry operator names for a ticket.</summary>
+    public Task<TicketNames> NamesAsync(TicketSummary t, CancellationToken ct = default) =>
+        db.ReadAsync(conn => conn.QuerySingleAsync<TicketNames>("""
+            SELECT (SELECT fleet_number FROM tg.trucks WHERE id = @truck) AS fleetnumber,
+                   (SELECT plate_text FROM tg.truck_plates WHERE truck_id = @truck AND valid_to IS NULL
+                    ORDER BY valid_from DESC LIMIT 1) AS plate,
+                   (SELECT full_name FROM tg.drivers WHERE id = @driver) AS drivername,
+                   coalesce((SELECT default_driver_id = @driver FROM tg.trucks WHERE id = @truck), false) AS driverisdefault,
+                   (SELECT full_name FROM tg.users WHERE id = @op) AS operatorname
+            """, new { truck = t.TruckId, driver = t.DriverId, op = t.OperatorId }), ct);
 
     // ------------------------------------------------------------------ helpers
 

@@ -70,20 +70,36 @@ public sealed class DatabaseFixture : IAsyncLifetime
         return (admin, new Db(app));
     }
 
-    private async Task<(NpgsqlDataSource Admin, NpgsqlDataSource App)> CreateDatabaseAsync()
+    /// <summary>Same, plus the application connection string (to start the real web server on it).</summary>
+    public async Task<(Db Db, string AppConnection)> CreateIsolatedDatabaseForServerAsync()
+    {
+        var name = await CreateDatabaseNameAsync();
+        // NpgsqlDataSource.ConnectionString drops the password, so the string is built here.
+        var appConnection = AppConnectionString(name);
+        return (new Db(NpgsqlDataSource.Create(appConnection)), appConnection);
+    }
+
+    private string AppConnectionString(string name) => new NpgsqlConnectionStringBuilder(_baseConnection)
+    {
+        Database = name, Username = "truckgate_app", Password = AppPassword,
+    }.ConnectionString;
+
+    private async Task<string> CreateDatabaseNameAsync()
     {
         var name = "tg_test_" + Guid.NewGuid().ToString("N")[..12];
         await using (var c = await _server.OpenConnectionAsync())
             await c.ExecuteAsync($"CREATE DATABASE {name}");
         _databases.Add(name);
-
-        var admin = NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(_baseConnection) { Database = name }.ConnectionString);
+        await using var admin = NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(_baseConnection) { Database = name }.ConnectionString);
         await DbMigrator.MigrateAsync(admin);
-        var app = NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(_baseConnection)
-        {
-            Database = name, Username = "truckgate_app", Password = AppPassword,
-        }.ConnectionString);
-        return (admin, app);
+        return name;
+    }
+
+    private async Task<(NpgsqlDataSource Admin, NpgsqlDataSource App)> CreateDatabaseAsync()
+    {
+        var name = await CreateDatabaseNameAsync();
+        var admin = NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(_baseConnection) { Database = name }.ConnectionString);
+        return (admin, NpgsqlDataSource.Create(AppConnectionString(name)));
     }
 
     public int NextId() => Interlocked.Increment(ref _nextId);

@@ -73,3 +73,16 @@ labeled frames kept permanently; trip evidence kept per accounting rules.
 5. Supervisor review + labels + alerts.
 6. Manager, accountant, admin, sync channels.
 7. Field pilot in parallel with the paper process (2–4 weeks).
+
+## Gate station (step 4)
+| Topic | Decision |
+|---|---|
+| Where | Everything at the gate runs on the factory PC, in a browser, on the LAN. No internet needed |
+| Scanner | USB 2D scanner in keyboard mode, Enter suffix; the scan box always has focus |
+| Camera discovery | ONVIF WS-Discovery on every LAN interface; ONVIF login lists every stream (NVR channels) with a preview; non-ONVIF cameras by snapshot URL |
+| Camera selection | Administrator chooses per camera: role (rear plate / cargo / overview), gate, *capture at scan*, frames 1–10 |
+| Capture | Starts in parallel with ticket verification; a dead camera never blocks the gate (error recorded, one alert per 30 min) |
+| Evidence | Each JPEG stored with SHA-256 in an append-only table under the audit chain; re-checked whenever it is opened; camera configuration version stored with every picture |
+| Rejected scans | Also photographed and kept |
+| Logins | Gatekeepers and quarry operators: PIN; other roles: password of 10+ characters; lockout after 5 failures for 5 min; quarry operators cannot use the web UI |
+| Camera passwords | AES-256-GCM, key file outside the database, never in the audit log or API responses |

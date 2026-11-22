@@ -58,11 +58,18 @@ public static class PinHasher
 {
     public const int Iterations = 100_000;
 
+    /// <summary>Hashes a PIN after checking it is not trivial.</summary>
     public static string Hash(string pin)
     {
         Validate(pin);
+        return HashSecret(pin);
+    }
+
+    /// <summary>Hashes any secret (PIN or password) without policy checks; see SecretPolicy.</summary>
+    public static string HashSecret(string secret)
+    {
         var salt = RandomNumberGenerator.GetBytes(16);
-        var hash = Rfc2898DeriveBytes.Pbkdf2(pin, salt, Iterations, HashAlgorithmName.SHA256, 32);
+        var hash = Rfc2898DeriveBytes.Pbkdf2(secret, salt, Iterations, HashAlgorithmName.SHA256, 32);
         return $"pbkdf2-sha256${Iterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
     }
 
