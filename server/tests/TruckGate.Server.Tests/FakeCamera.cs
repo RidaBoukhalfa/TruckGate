@@ -42,8 +42,10 @@ public sealed class FakeCamera : IAsyncDisposable
         var app = builder.Build();
         FakeCamera? self = null;
 
-        app.MapPost("/onvif/device_service", async (HttpContext ctx) => await Soap(ctx, self!));
-        app.MapPost("/onvif/media_service", async (HttpContext ctx) => await Soap(ctx, self!));
+        // A lambda taking only HttpContext binds to RequestDelegate and would drop a returned IResult,
+        // so the result is executed explicitly.
+        app.MapPost("/onvif/device_service", async (HttpContext ctx) => await (await Soap(ctx, self!)).ExecuteAsync(ctx));
+        app.MapPost("/onvif/media_service", async (HttpContext ctx) => await (await Soap(ctx, self!)).ExecuteAsync(ctx));
         app.MapGet("/snap/{channel:int}.jpg", (int channel, HttpContext ctx) =>
         {
             var expected = "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{User}:{Password}"));
