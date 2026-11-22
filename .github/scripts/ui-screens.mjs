@@ -6,9 +6,10 @@ import fs from 'node:fs'
 const [base, user, pass, out, chrome] = process.argv.slice(2)
 fs.mkdirSync(out, { recursive: true })
 const browser = await puppeteer.launch({ executablePath: chrome, headless: true, args: ['--no-first-run'] })
+const errors = []
+try {
 const page = await browser.newPage()
 await page.setViewport({ width: 1366, height: 900 })
-const errors = []
 page.on('pageerror', (e) => errors.push(String(e)))
 await page.goto(base, { waitUntil: 'networkidle0' })
 await page.screenshot({ path: `${out}/web-1-login.png` })
@@ -35,6 +36,8 @@ await new Promise((r) => setTimeout(r, 1500))
 await page.screenshot({ path: `${out}/web-3-phones.png`, fullPage: true })
 await clickButton('button.tab', ['لوحة اليوم', 'Tableau du jour'])
 await page.screenshot({ path: `${out}/web-4-dashboard.png`, fullPage: true })
-await browser.close()
+} finally {
+  await browser.close()
+}
 if (errors.length) { console.error('Page errors:\n' + errors.join('\n')); process.exit(1) }
 console.log('screenshots saved')

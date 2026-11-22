@@ -232,6 +232,7 @@ jobs:
           Get-Content out/info/installer-contents.txt | Select-Object -Last 5
       - name: Install / start / login / upgrade / uninstall test on this Windows machine
         if: steps.iscc.outcome == 'success'
+        timeout-minutes: 30
         shell: powershell
         run: |
           Push-Location .github/scripts; npm install --no-save --no-audit --no-fund puppeteer-core@24 | Out-Host; Pop-Location
@@ -239,18 +240,27 @@ jobs:
           exit $LASTEXITCODE
       - name: Server test suite on Windows, against the bundled PostgreSQL
         if: always() && steps.iscc.outcome == 'success'
+        timeout-minutes: 25
         run: |
           $pg = "$PWD\out\pgsql\bin"
           & "$pg\initdb.exe" -D "$env:RUNNER_TEMP\pgtest" -U postgres -A trust -E UTF8 --locale=C | Out-Host
-          & "$pg\pg_ctl.exe" -D "$env:RUNNER_TEMP\pgtest" -o "-p 5444" -l "$env:RUNNER_TEMP\pgtest.log" -w start | Out-Host
+          # the server process must not inherit this step's output pipe (the step would never end)
+          $p = Start-Process -FilePath "$pg\pg_ctl.exe" -NoNewWindow -PassThru `
+            -ArgumentList @('-D', "$env:RUNNER_TEMP\pgtest", '-o', '"-p 5444"', '-l', "$env:RUNNER_TEMP\pgtest.log", '-w', 'start') `
+            -RedirectStandardOutput "$env:RUNNER_TEMP\pgctl.out" -RedirectStandardError "$env:RUNNER_TEMP\pgctl.err"
+          $null = $p.Handle
+          $p.WaitForExit()
+          Get-Content "$env:RUNNER_TEMP\pgctl.out", "$env:RUNNER_TEMP\pgctl.err"
+          & "$pg\pg_isready.exe" -h 127.0.0.1 -p 5444
+          if ($LASTEXITCODE) { Get-Content "$env:RUNNER_TEMP\pgtest.log"; exit 1 }
           $env:TRUCKGATE_TEST_PG = 'Host=127.0.0.1;Port=5444;Username=postgres;Password=unused'
           # keep the tests away from the site configuration the installer test left in ProgramData
           $env:TRUCKGATE_CONFIG = "$env:RUNNER_TEMP\no-site-config.json"
-          dotnet test server/tests/TruckGate.Crypto.Tests --logger "trx;LogFileName=crypto-tests.trx" --results-directory out/test 2>&1 | Tee-Object out/test/crypto-tests.log
+          dotnet test server/tests/TruckGate.Crypto.Tests --disable-build-servers --blame-hang-timeout 5m --logger "trx;LogFileName=crypto-tests.trx" --results-directory out/test 2>&1 | Tee-Object out/test/crypto-tests.log
           $rc1 = $LASTEXITCODE
-          dotnet test server/tests/TruckGate.Server.Tests --logger "trx;LogFileName=server-tests.trx" --results-directory out/test 2>&1 | Tee-Object out/test/server-tests.log
+          dotnet test server/tests/TruckGate.Server.Tests --disable-build-servers --blame-hang-timeout 5m --logger "trx;LogFileName=server-tests.trx" --results-directory out/test 2>&1 | Tee-Object out/test/server-tests.log
           $rc2 = $LASTEXITCODE
-          & "$pg\pg_ctl.exe" -D "$env:RUNNER_TEMP\pgtest" -m fast stop | Out-Host
+          & "$pg\pg_ctl.exe" -D "$env:RUNNER_TEMP\pgtest" -m fast stop
           foreach ($t in Get-ChildItem out/test -Filter *.trx) {
             $c = ([xml](Get-Content $t.FullName)).TestRun.ResultSummary.Counters
             "$($t.BaseName): total=$($c.total) passed=$($c.passed) failed=$($c.failed)" | Tee-Object -Append out/test/windows-dotnet-tests.txt
@@ -302,7 +312,8 @@ jobs:
         run: |
           TAG="$GITHUB_REF_NAME"
           [ "$GITHUB_REF_TYPE" = "tag" ] || TAG="v$TG_VERSION-build.$GITHUB_RUN_NUMBER"
-          for id in $(gh api "repos/$REPO/releases" --paginate --jq ".[] | select(.draft and .tag_name == \"$TAG\") | .id"); do
+          # replace earlier drafts of this tag and earlier branch test builds of this version
+          for id in $(gh api "repos/$REPO/releases" --paginate --jq ".[] | select(.draft and (.tag_name == \"$TAG\" or (.tag_name | startswith(\"v$TG_VERSION-build.\")))) | .id"); do
             gh api -X DELETE "repos/$REPO/releases/$id"
           done
           gh release create "$TAG" upload/* --repo "$REPO" --draft --prerelease --target "$GITHUB_SHA" \

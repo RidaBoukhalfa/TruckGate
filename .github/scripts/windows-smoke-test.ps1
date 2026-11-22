@@ -104,7 +104,20 @@ Check 'web UI served (index.html and its script)' {
     Assert ($j.StatusCode -eq 200 -and $j.RawContentLength -gt 100000) 'script not served'
     $js
 }
-$cfg = Get-Content (Join-Path $root 'config\appsettings.json') -Raw | ConvertFrom-Json
+function Show-Logs {
+    foreach ($f in @((Join-Path $root 'logs\install.log'), (Join-Path $Out 'setup-1-install.log'))) {
+        if (Test-Path $f) { Write-Host "----- tail of $f"; Get-Content $f -Tail 80 | ForEach-Object { Write-Host "  | $_" } }
+    }
+    $latest = Get-ChildItem (Join-Path $root 'logs') -Filter 'truckgate-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+    if ($latest) { Write-Host "----- tail of $($latest.FullName)"; Get-Content $latest.FullName -Tail 60 | ForEach-Object { Write-Host "  | $_" } }
+}
+$siteConfig = Join-Path $root 'config\appsettings.json'
+if (-not (Test-Path $siteConfig)) {
+    Note 'FAIL  server configuration was not written: the server part of the installation failed'
+    Show-Logs
+    exit 1
+}
+$cfg = Get-Content $siteConfig -Raw | ConvertFrom-Json
 $publicUrl = [string]$cfg.Server.PublicUrl
 $ip = ([Uri]$publicUrl).Host
 Check 'address for phones detected = an IPv4 of this PC, reachable' {
@@ -289,6 +302,7 @@ $code = Run-Uninstall 'setup-7-station-uninstall.log'
 Check 'station uninstall exit code 0' { Assert ($code -eq 0) "exit $code" }
 
 Note ''
+if ($script:failed) { Show-Logs }
 Note "RESULT: $(if ($script:failed -eq 0) { 'ALL PASSED' } else { "$($script:failed) FAILED" })"
 Copy-Item (Join-Path $root 'logs\*') $Out -ErrorAction SilentlyContinue
 exit $script:failed
