@@ -67,9 +67,14 @@ function Login([string]$user, [string]$pass) {
         throw (New-Object System.Net.WebException($msg, $_.Exception, $_.Exception.Status, $resp))
     }
     $set = [string]$r.Headers['Set-Cookie']
-    $pairs = [regex]::Matches($set, '(tg_session[A-Za-z0-9]*)=([^;,\s]+)') | ForEach-Object { $_.Groups[1].Value + '=' + $_.Groups[2].Value }
-    if (-not $pairs) { throw "login answered HTTP $($r.StatusCode) without a session cookie: $set" }
-    return @{ Cookie = ($pairs -join '; '); 'X-TG-CSRF' = '1' }
+    $found = @([regex]::Matches($set, '(tg_session[A-Za-z0-9]*)=([^;,\s]+)'))
+    if (-not $found) { throw "login answered HTTP $($r.StatusCode) without a session cookie: $set" }
+    # Windows PowerShell replaces a hand-written Cookie header with its own cookie container,
+    # so the session cookie is put into a session object.
+    $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+    foreach ($m in $found) { $session.Cookies.Add((New-Object System.Net.Cookie($m.Groups[1].Value, $m.Groups[2].Value, '/', '127.0.0.1'))) }
+    $session.Headers['X-TG-CSRF'] = '1'
+    return $session
 }
 function Get-PeMachine([string]$path) {
     $b = [IO.File]::ReadAllBytes($path)
@@ -213,7 +218,7 @@ Check 'administrator stored as typed (database check)' {
 }
 Check 'login with the new administrator' {
     $script:session = Login 'admin' $adminPass
-    $me = Invoke-RestMethod -Uri "$base/api/auth/me" -Headers $script:session
+    $me = Invoke-RestMethod -Uri "$base/api/auth/me" -WebSession $script:session
     Assert ($me.role -eq 'ADMIN') ($me | ConvertTo-Json -Compress)
     "role $($me.role)"
 }
@@ -221,7 +226,7 @@ Check 'wrong password refused' {
     try { Login 'admin' 'wrong-password-123' | Out-Null; throw 'accepted' } catch [System.Net.WebException] { 'HTTP ' + [int]$_.Exception.Response.StatusCode }
 }
 Check 'phone enrollment code: server key created by the service, address = detected one' {
-    $inv = Invoke-RestMethod -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"CI phone"}' -ContentType 'application/json' -Headers $script:session
+    $inv = Invoke-RestMethod -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"CI phone"}' -ContentType 'application/json' -WebSession $script:session
     $parts = $inv.qrText.Split('|')
     Assert ($parts[0] -eq 'TGE1' -and $parts[1] -eq $publicUrl) $inv.qrText.Substring(0, 40)
     $script:inviteKey = $parts[3]
@@ -231,18 +236,19 @@ Check 'phone enrollment code: server key created by the service, address = detec
     'TGE1|' + $parts[1] + '|...'
 }
 Check 'server-address code for enrolled phones (signed)' {
-    $a = Invoke-RestMethod -Uri "$base/api/admin/server-address" -Headers $script:session
+    $a = Invoke-RestMethod -Uri "$base/api/admin/server-address" -WebSession $script:session
     Assert ($a.qrText.StartsWith("TGA1|$publicUrl|")) $a.qrText
     $a.url
 }
 Check 'dashboard report answers' {
-    $d = Invoke-WebRequest -Uri "$base/api/reports/dashboard" -Headers $script:session -UseBasicParsing
+    $d = Invoke-WebRequest -Uri "$base/api/reports/dashboard" -WebSession $script:session -UseBasicParsing
     "HTTP $($d.StatusCode)"
 }
 Check 'CSRF: state change without the header refused' {
     try {
-        $h = @{ Cookie = $script:session.Cookie }
-        Invoke-WebRequest -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"x"}' -ContentType 'application/json' -Headers $h -UseBasicParsing | Out-Null
+        $plain = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+        $plain.Cookies = $script:session.Cookies
+        Invoke-WebRequest -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"x"}' -ContentType 'application/json' -WebSession $plain -UseBasicParsing | Out-Null
         throw 'accepted'
     } catch [System.Net.WebException] { $c = [int]$_.Exception.Response.StatusCode; Assert ($c -eq 403) "HTTP $c"; 'HTTP 403' }
 }
@@ -291,7 +297,7 @@ $code = Run-Setup @('/TYPE=server') 'setup-2-upgrade.log'
 Check 'upgrade exit code 0, healthy' { Assert ($code -eq 0) "exit $code"; Assert ((Health).status -eq 'ok') 'not healthy' }
 Check 'administrator still signs in, same server key' {
     $s = Login 'admin' $adminPass
-    $inv = Invoke-RestMethod -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"CI phone 2"}' -ContentType 'application/json' -Headers $s
+    $inv = Invoke-RestMethod -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"CI phone 2"}' -ContentType 'application/json' -WebSession $s
     Assert ($inv.qrText.Split('|')[3] -eq $script:inviteKey) 'server key changed'
     'ok'
 }
@@ -317,7 +323,7 @@ Check 'reinstall exit code 0, healthy, same administrator and key' {
     Assert ($code -eq 0) "exit $code"
     Assert ((Health).status -eq 'ok') 'not healthy'
     $s = Login 'admin' $adminPass
-    $inv = Invoke-RestMethod -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"CI phone 3"}' -ContentType 'application/json' -Headers $s
+    $inv = Invoke-RestMethod -Uri "$base/api/admin/enrollments" -Method Post -Body '{"label":"CI phone 3"}' -ContentType 'application/json' -WebSession $s
     Assert ($inv.qrText.Split('|')[3] -eq $script:inviteKey) 'server key changed'
     'ok'
 }
