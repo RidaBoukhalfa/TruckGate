@@ -263,7 +263,9 @@ function Register-BackupTask {
     }
 }
 
-Initialize-TgLog (Join-Path (Join-Path (Get-TgRoot) 'logs') 'install.log')
+Initialize-TgLog (Join-Path (Join-Path (Get-TgRoot) 'logs') 'install.log') (Join-Path ([IO.Path]::GetTempPath()) 'truckgate-install.log')
+Write-TgLog ('Running as ' + [Security.Principal.WindowsIdentity]::GetCurrent().Name + ', administrator: ' +
+    ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
 try {
     Main
     exit 0

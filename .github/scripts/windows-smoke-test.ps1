@@ -105,8 +105,15 @@ Check 'web UI served (index.html and its script)' {
     $js
 }
 function Show-Logs {
-    foreach ($f in @((Join-Path $root 'logs\install.log'), (Join-Path $Out 'setup-1-install.log'))) {
-        if (Test-Path $f) { Write-Host "----- tail of $f"; Get-Content $f -Tail 80 | ForEach-Object { Write-Host "  | $_" } }
+    $ErrorActionPreference = 'Continue'
+    Write-Host ('----- whoami: ' + (& whoami.exe /groups | Select-String 'Mandatory Label|S-1-5-32-544' | Out-String))
+    foreach ($d in @($root, (Join-Path $root 'logs'), (Join-Path $root 'logs\install.log'), (Join-Path $root 'config'), (Join-Path $root 'pgdata'))) {
+        Write-Host "----- icacls $d"; & icacls.exe $d 2>&1 | ForEach-Object { Write-Host "  | $_" }
+    }
+    foreach ($f in @((Join-Path $env:TEMP 'truckgate-install.log'), (Join-Path $root 'logs\install.log'), (Join-Path $Out 'setup-1-install.log'))) {
+        try {
+            if (Test-Path $f) { Write-Host "----- tail of $f"; Get-Content $f -Tail 120 | ForEach-Object { Write-Host "  | $_" } }
+        } catch { Write-Host "----- cannot read $f : $($_.Exception.Message)" }
     }
     $latest = Get-ChildItem (Join-Path $root 'logs') -Filter 'truckgate-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
     if ($latest) { Write-Host "----- tail of $($latest.FullName)"; Get-Content $latest.FullName -Tail 60 | ForEach-Object { Write-Host "  | $_" } }

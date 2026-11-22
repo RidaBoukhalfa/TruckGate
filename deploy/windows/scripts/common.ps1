@@ -8,22 +8,26 @@ $script:TgSidAdmins = 'S-1-5-32-544'
 $script:TgSidUsers = 'S-1-5-32-545'
 $script:TgSidNetworkService = 'S-1-5-20'
 $script:TgLogFile = $null
+$script:TgLogCopy = $null
 # Factory LAN checks must not go through a proxy configured for the internet.
 [System.Net.WebRequest]::DefaultWebProxy = $null
 
 function Get-TgRoot { Join-Path $env:ProgramData 'TruckGate' }
 
-function Initialize-TgLog([string]$Path) {
+# -Copy: second log in a place the installing user can always open (their TEMP folder).
+function Initialize-TgLog([string]$Path, [string]$Copy) {
     $dir = Split-Path $Path -Parent
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     $script:TgLogFile = $Path
+    $script:TgLogCopy = $Copy
     Write-TgLog ('---- ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' ' + $MyInvocation.PSCommandPath)
 }
 
 function Write-TgLog([string]$Message) {
     $line = (Get-Date -Format 'HH:mm:ss') + '  ' + $Message
     Write-Host $line
-    if ($script:TgLogFile) { Add-Content -Path $script:TgLogFile -Value $line -Encoding UTF8 }
+    if ($script:TgLogFile) { try { Add-Content -Path $script:TgLogFile -Value $line -Encoding UTF8 } catch { } }
+    if ($script:TgLogCopy) { try { Add-Content -Path $script:TgLogCopy -Value $line -Encoding UTF8 } catch { } }
 }
 
 function ConvertTo-TgArg([string]$a) {
