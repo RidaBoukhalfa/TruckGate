@@ -19,7 +19,7 @@ await inputs[1].type(pass)
 await Promise.all([page.waitForResponse((r) => r.url().includes('/api/auth/login')), page.click('form button')])
 await new Promise((r) => setTimeout(r, 1500))
 await page.screenshot({ path: `${out}/web-2-gate.png` })
-if (!(await page.$('button.tab'))) throw new Error('still on the login page after signing in')
+if (!(await page.$('button.nav-item'))) throw new Error('still on the login page after signing in')
 const clickButton = async (selector, labels) => {
   const ok = await page.evaluate((sel, ls) => {
     const b = [...document.querySelectorAll(sel)].find((x) => ls.some((l) => x.textContent.includes(l)))
@@ -29,13 +29,13 @@ const clickButton = async (selector, labels) => {
   if (!ok) throw new Error(`button not found: ${labels.join(' / ')}`)
   await new Promise((r) => setTimeout(r, 1500))
 }
-await clickButton('button.tab', ['هواتف المقلع', 'Téléphones carrière'])
+await clickButton('button.nav-item', ['هواتف المقلع', 'Téléphones carrière'])
 await clickButton('button', ['عرض رمز عنوان الخادم', "Afficher le code d'adresse du serveur"])
 const qr = await page.$('img[alt="server address QR"]')
 if (!qr) throw new Error('server address QR not shown')
 await new Promise((r) => setTimeout(r, 1500))
 await page.screenshot({ path: `${out}/web-3-phones.png`, fullPage: true })
-await clickButton('button.tab', ['لوحة اليوم', 'Tableau du jour'])
+await clickButton('button.nav-item', ['لوحة اليوم', 'Tableau du jour'])
 await page.screenshot({ path: `${out}/web-4-dashboard.png`, fullPage: true })
 } finally {
   await browser.close()

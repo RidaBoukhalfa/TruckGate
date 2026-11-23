@@ -318,6 +318,14 @@ jobs:
           & "$pg\pg_isready.exe" -h 127.0.0.1 -p 5444
           if ($LASTEXITCODE) { Get-Content "$env:RUNNER_TEMP\pgtest.log"; exit 1 }
           $env:TRUCKGATE_TEST_PG = 'Host=127.0.0.1;Port=5444;Username=postgres;Password=unused'
+          # passage-video test with the FFmpeg build the installer ships, against a test RTSP server
+          curl.exe -L --fail --retry 3 --silent --show-error -o "$env:RUNNER_TEMP\mediamtx.zip" `
+            https://github.com/bluenviron/mediamtx/releases/download/v1.9.3/mediamtx_v1.9.3_windows_amd64.zip
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Expand-Archive "$env:RUNNER_TEMP\mediamtx.zip" "$env:RUNNER_TEMP\mediamtx" -Force
+          $env:TRUCKGATE_TEST_MEDIAMTX = "$env:RUNNER_TEMP\mediamtx\mediamtx.exe"
+          $env:PATH = "$PWD\out\ffmpeg;$env:PATH"
+          (Get-Command ffmpeg).Source
           # keep the tests away from the site configuration the installer test left in ProgramData
           $env:TRUCKGATE_CONFIG = "$env:RUNNER_TEMP\no-site-config.json"
           dotnet test server/tests/TruckGate.Crypto.Tests --disable-build-servers --blame-hang-timeout 5m --logger "trx;LogFileName=crypto-tests.trx" --results-directory out/test 2>&1 | Tee-Object out/test/crypto-tests.log

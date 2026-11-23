@@ -80,6 +80,23 @@ public class VideoTests(DatabaseFixture fx)
 {
     private static readonly Actor T = DatabaseFixture.Tester;
 
+    /// <summary>
+    /// H.264 like the gate cameras: libx264 where ffmpeg has it (Linux CI), openh264 in the LGPL build that
+    /// the Windows installer ships (no x264 there), MPEG-4 part 2 only as a last resort.
+    /// </summary>
+    private static string[] TestEncoder()
+    {
+        using var p = Process.Start(new ProcessStartInfo("ffmpeg", "-hide_banner -encoders")
+            { UseShellExecute = false, RedirectStandardOutput = true })!;
+        var list = p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        if (list.Contains(" libx264 ", StringComparison.Ordinal))
+            return ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-g", "15"];
+        if (list.Contains(" libopenh264 ", StringComparison.Ordinal))
+            return ["-c:v", "libopenh264", "-g", "15", "-b:v", "800k"];
+        return ["-c:v", "mpeg4", "-q:v", "5", "-g", "15"];
+    }
+
     private static string? MediaMtx()
     {
         var path = Environment.GetEnvironmentVariable("TRUCKGATE_TEST_MEDIAMTX");
@@ -119,10 +136,8 @@ public class VideoTests(DatabaseFixture fx)
             ArgumentList =
             {
                 "-hide_banner", "-loglevel", "error", "-re", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=15",
-                "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-g", "15",
-                "-f", "rtsp", "-rtsp_transport", "tcp", "rtsp://127.0.0.1:18554/cam1",
             },
-        })!;
+        }.WithArgs([.. TestEncoder(), "-f", "rtsp", "-rtsp_transport", "tcp", "rtsp://127.0.0.1:18554/cam1"]))!;
         var recorders = new List<CameraRecorder>();
         using var stop = new CancellationTokenSource();
         try
@@ -250,5 +265,14 @@ public class VideoTests(DatabaseFixture fx)
             try { publisher.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
             try { server.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
         }
+    }
+}
+
+internal static class ProcessStartInfoArgs
+{
+    public static ProcessStartInfo WithArgs(this ProcessStartInfo info, IEnumerable<string> args)
+    {
+        foreach (var a in args) info.ArgumentList.Add(a);
+        return info;
     }
 }
