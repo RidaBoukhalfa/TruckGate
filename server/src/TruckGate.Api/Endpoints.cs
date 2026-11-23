@@ -35,8 +35,9 @@ internal static class HttpContextUser
 public sealed record LoginRequest(string Username, string Secret);
 public sealed record ScanRequest(short GateId, string QrText);
 public sealed record ScanView(string Kind, ScanEntryResult Scan, TicketNames? Names, IReadOnlyList<SnapshotInfo> Snapshots,
-    IReadOnlyList<TruckPassage>? Passages = null);
-public sealed record ExitView(string Kind, ScanExitResult Exit, IReadOnlyList<SnapshotInfo> Snapshots);
+    IReadOnlyList<TruckPassage>? Passages = null, IReadOnlyList<VideoItem>? Videos = null);
+public sealed record ExitView(string Kind, ScanExitResult Exit, IReadOnlyList<SnapshotInfo> Snapshots,
+    IReadOnlyList<VideoItem>? Videos = null);
 public sealed record ManualCodeRequest(short GateId, string TicketId, string ShortCode);
 public sealed record DecisionRequest(EntryDecision Decision, string? Note, string? ObservedPlate = null);
 public sealed record RevokeRequest(string Reason);
@@ -56,9 +57,12 @@ public sealed record TestSnapshotRequest(string SnapshotUrl, string? Username, s
 
 internal static partial class Endpoints
 {
-    /// <summary>Starts the camera burst, runs the scan, then stores the pictures under the scan id.</summary>
-    internal static async Task<(T Result, IReadOnlyList<SnapshotInfo> Pictures)> WithPicturesAsync<T>(CameraService cams,
-        short gateId, Func<Task<T>> scan, Func<T, long> scanId)
+    /// <summary>
+    /// Starts the camera burst, runs the scan, then stores the pictures under the scan id and opens the
+    /// event video of every recording camera of the gate (N seconds before the scan are already in the buffer).
+    /// </summary>
+    internal static async Task<(T Result, IReadOnlyList<SnapshotInfo> Pictures, IReadOnlyList<VideoItem> Videos)> WithPicturesAsync<T>(
+        CameraService cams, VideoService video, short gateId, Func<Task<T>> scan, Func<T, long> scanId)
     {
         var capture = cams.CaptureAsync(gateId, CancellationToken.None);
         T result;
@@ -71,8 +75,10 @@ internal static partial class Endpoints
             try { await capture; } catch { /* the scan error is the one to report */ }
             throw;
         }
-        var pictures = await cams.StoreAsync(scanId(result), await capture, CancellationToken.None);
-        return (result, pictures);
+        var id = scanId(result);
+        await video.RegisterScanAsync(id, CancellationToken.None);
+        var pictures = await cams.StoreAsync(id, await capture, CancellationToken.None);
+        return (result, pictures, await video.ListForScanAsync(id, CancellationToken.None));
     }
 
     public static void MapAuthEndpoints(this WebApplication app)
@@ -113,30 +119,32 @@ internal static partial class Endpoints
         // The ticket is "burned" (checked and used) and the cameras of this gate take their pictures
         // at the same time. Pictures are kept for every scan, including rejected ones. The same box takes
         // the exit receipt (TR1:), so the gatekeeper never has to choose a mode.
-        gate.MapPost("/scan", async (ScanRequest r, GateService svc, ExitService exits, CameraService cams, HttpContext ctx,
-            CancellationToken ct) =>
+        gate.MapPost("/scan", async (ScanRequest r, GateService svc, ExitService exits, CameraService cams, VideoService video,
+            HttpContext ctx, CancellationToken ct) =>
         {
             var text = (r.QrText ?? "").Trim();
             if (text.StartsWith(GateReceipt.QrPrefix, StringComparison.Ordinal))
             {
-                var (exit, exitPictures) = await WithPicturesAsync(cams, r.GateId,
+                var (exit, exitPictures, exitVideos) = await WithPicturesAsync(cams, video, r.GateId,
                     () => exits.ScanReceiptAsync(r.GateId, text, ctx.UserId(), ctx.Actor(), ct), x => x.ScanId);
-                return Results.Ok(new ExitView("EXIT", exit, exitPictures));
+                return Results.Ok(new ExitView("EXIT", exit, exitPictures, exitVideos));
             }
-            var (result, pictures) = await WithPicturesAsync(cams, r.GateId,
+            var (result, pictures, videos) = await WithPicturesAsync(cams, video, r.GateId,
                 () => svc.ScanEntryAsync(new ScanEntryRequest(r.GateId, text, ctx.UserId()), ctx.Actor(), ct), x => x.ScanId);
             var names = result.Ticket is null ? null : await svc.NamesAsync(result.Ticket, ct);
             var passages = result.Ticket is null ? null : await svc.PassagesAsync(result.Ticket.TruckId, result.TripId, 5, ct);
-            return Results.Ok(new ScanView("ENTRY", result, names, pictures, passages));
+            return Results.Ok(new ScanView("ENTRY", result, names, pictures, passages, videos));
         });
 
         // Damaged QR: ticket number + short code, checked against the copy synced from the phone.
-        gate.MapPost("/manual", async (ManualCodeRequest r, GateService svc, CameraService cams, HttpContext ctx, CancellationToken ct) =>
+        gate.MapPost("/manual", async (ManualCodeRequest r, GateService svc, CameraService cams, VideoService video, HttpContext ctx,
+            CancellationToken ct) =>
         {
-            var (result, pictures) = await WithPicturesAsync(cams, r.GateId,
+            var (result, pictures, videos) = await WithPicturesAsync(cams, video, r.GateId,
                 () => svc.ScanManualAsync(r.GateId, r.TicketId, r.ShortCode, ctx.UserId(), ctx.Actor(), ct), x => x.ScanId);
             var names = result.Ticket is null ? null : await svc.NamesAsync(result.Ticket, ct);
-            return Results.Ok(new ScanView("ENTRY", result, names, pictures));
+            var passages = result.Ticket is null ? null : await svc.PassagesAsync(result.Ticket.TruckId, result.TripId, 5, ct);
+            return Results.Ok(new ScanView("ENTRY", result, names, pictures, passages, videos));
         });
 
         gate.MapPost("/scans/{scanId:long}/decision", async (long scanId, DecisionRequest r, GateService svc,
@@ -145,6 +153,17 @@ internal static partial class Endpoints
 
         gate.MapGet("/scans/{scanId:long}/snapshots", async (long scanId, CameraService cams, CancellationToken ct) =>
             Results.Ok(await cams.ListForScanAsync(scanId, ct)));
+        gate.MapGet("/scans/{scanId:long}/videos", async (long scanId, VideoService video, CancellationToken ct) =>
+            Results.Ok(await video.ListForScanAsync(scanId, ct)));
+
+        // Event video, checked against its fingerprint; range requests let the player seek.
+        app.MapGet("/api/videos/{id:long}", async (long id, VideoService video, HttpContext ctx, CancellationToken ct) =>
+        {
+            ctx.Response.Headers.CacheControl = "private, max-age=600";
+            return Results.File(await video.VerifiedPathAsync(id, ct), "video/mp4", enableRangeProcessing: true);
+        }).RequireAuthorization(Policies.Evidence);
+        app.MapGet("/api/storage", async (VideoService video, CancellationToken ct) =>
+            Results.Ok(await video.StorageAsync(alert: false, ct))).RequireAuthorization(Policies.Supervise);
 
         gate.MapGet("/cameras/{id:int}/live", async (int id, CameraService cams, CancellationToken ct) =>
             Results.File(await cams.TestCameraAsync(id, ct), "image/jpeg"));

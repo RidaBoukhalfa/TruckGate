@@ -67,6 +67,12 @@ builder.Services.AddSingleton(_ => new StorageOptions(
     builder.Configuration["Storage:Root"] ?? Path.Combine(dataDir, "snapshots")));
 builder.Services.AddSingleton(sp => new CameraService(sp.GetRequiredService<Db>(), sp.GetRequiredService<SecretBox>(),
     sp.GetRequiredService<StorageOptions>()));
+// Event video: ffmpeg/ffprobe are bundled by the Windows installer (Video:FfmpegPath); "ffmpeg" from PATH otherwise.
+builder.Services.AddSingleton(sp => new VideoService(sp.GetRequiredService<Db>(), new VideoOptions(
+    builder.Configuration["Video:FfmpegPath"] is { Length: > 0 } ff ? ff : "ffmpeg",
+    builder.Configuration["Video:FfprobePath"] is { Length: > 0 } fp ? fp : "ffprobe",
+    builder.Configuration["Video:BufferDir"] ?? Path.Combine(dataDir, "video-buffer"),
+    sp.GetRequiredService<StorageOptions>().Root)));
 builder.Services.AddSingleton(_ => EnrollmentOptions.Default(
     builder.Configuration["Server:PublicUrl"] ?? throw new InvalidOperationException("Server:PublicUrl is required (the address phones use).")));
 builder.Services.AddSingleton<EnrollmentService>();
@@ -93,6 +99,7 @@ builder.Services.AddSingleton<AlertService>();
 if (builder.Configuration["Background:Disabled"] != "true")
 {
     builder.Services.AddHostedService<WatchdogHost>();
+    if (builder.Configuration["Video:Disabled"] != "true") builder.Services.AddHostedService<VideoRecorderHost>();
     builder.Services.AddHostedService<AlertDispatchHost>();
 }
 

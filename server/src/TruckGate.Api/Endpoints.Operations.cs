@@ -23,12 +23,12 @@ internal static partial class Endpoints
         gate.MapGet("/inside", async (ExitService svc, CancellationToken ct) => Results.Ok(await svc.InsideAsync(ct)));
 
         // Receipt lost: the gatekeeper picks the truck among the trucks inside (recorded as such).
-        gate.MapPost("/exit/manual", async (ManualExitRequest r, ExitService svc, CameraService cams, HttpContext ctx,
-            CancellationToken ct) =>
+        gate.MapPost("/exit/manual", async (ManualExitRequest r, ExitService svc, CameraService cams, VideoService video,
+            HttpContext ctx, CancellationToken ct) =>
         {
-            var (exit, pictures) = await WithPicturesAsync(cams, r.GateId,
+            var (exit, pictures, videos) = await WithPicturesAsync(cams, video, r.GateId,
                 () => svc.ScanManualAsync(r.GateId, r.TripId, ctx.UserId(), ctx.Actor(), ct), x => x.ScanId);
-            return Results.Ok(new ExitView("EXIT", exit, pictures));
+            return Results.Ok(new ExitView("EXIT", exit, pictures, videos));
         });
 
         gate.MapPost("/exit/scans/{scanId:long}/decision", async (long scanId, ExitDecisionRequest r, ExitService svc,
