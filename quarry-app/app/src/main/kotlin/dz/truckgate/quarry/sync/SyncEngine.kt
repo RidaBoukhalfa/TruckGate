@@ -28,7 +28,10 @@ import java.util.Base64
 class SyncEngine(context: Context) {
     private val store = Store.get(context)
 
-    data class Result(val config: DeviceConfig?, val sent: Int, val rejected: Int, val photos: Int, val photosRefused: Int = 0)
+    data class Result(
+        val config: DeviceConfig?, val sent: Int, val rejected: Int, val photos: Int, val photosRefused: Int = 0,
+        val trucksSent: Int = 0, val trucksRejected: Int = 0,
+    )
 
     fun run(includePhotos: Boolean): Result {
         val id = store.get(K_DEVICE_ID)?.toIntOrNull() ?: error("not enrolled")
@@ -37,7 +40,32 @@ class SyncEngine(context: Context) {
             // Signed requests are time-stamped with the server's clock, so a wrong phone clock cannot block sync.
             val offset = api.serverTime() - nowPhone()
             val now = { nowPhone() + offset }
-            val config = fetchConfig(api, id, now())
+            var config = fetchConfig(api, id, now())
+
+            // Trucks typed on this phone first: the tickets that carry their numbers come next.
+            var trucksSent = 0
+            var trucksRejected = 0
+            val newTrucks = store.provisionalTrucks().filter { it.syncedAt == null }
+            if (newTrucks.isNotEmpty()) {
+                val body = JSONObject()
+                    .put("tickets", JSONArray())
+                    .put("trucks", JSONArray().apply {
+                        newTrucks.forEach { t ->
+                            put(JSONObject().put("id", t.id).put("plate", t.plate).put("createdAt", t.createdAt)
+                                .put("operatorId", t.operatorId).put("note", JSONObject.NULL))
+                        }
+                    }).toString().toByteArray(Charsets.UTF_8)
+                val response = api.sync(id, now(), body) { DeviceKeys.signWithAuthKey(it) }
+                val serverTime = response.getLong("serverTime")
+                val results = response.optJSONArray("trucks") ?: JSONArray()
+                for (i in 0 until results.length()) {
+                    val r = results.getJSONObject(i)
+                    if (r.getString("status") == "OK") { store.markTruckSynced(r.getInt("id"), serverTime); trucksSent++ }
+                    else { store.markTruckError(r.getInt("id"), r.optString("error")); trucksRejected++ }
+                }
+                // the server now lists them (waiting for approval): take the fresh list
+                config = fetchConfig(api, id, now())
+            }
 
             var sent = 0
             var rejected = 0
@@ -97,7 +125,7 @@ class SyncEngine(context: Context) {
                     }
                 }
             }
-            return Result(config, sent, rejected, photos, photosRefused)
+            return Result(config, sent, rejected, photos, photosRefused, trucksSent, trucksRejected)
         } catch (e: ServerException) {
             if (e.code == "DEVICE_NOT_ALLOWED") store.put(K_REVOKED, "1")
             store.put(K_LAST_SYNC_ERROR, e.code)

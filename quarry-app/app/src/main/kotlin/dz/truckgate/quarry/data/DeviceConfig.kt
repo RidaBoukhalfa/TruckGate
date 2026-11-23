@@ -6,7 +6,16 @@ import dz.truckgate.quarry.core.IssuanceParams
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class Truck(val id: Int, val fleetNumber: String, val plate: String?, val defaultDriverId: Int?, val active: Boolean)
+/**
+ * [status]: APPROVED or PENDING_APPROVAL (registered from a quarry phone, waiting for the supervisor).
+ * [local]: registered on this phone and not confirmed by the server yet.
+ */
+data class Truck(
+    val id: Int, val fleetNumber: String, val plate: String?, val defaultDriverId: Int?, val active: Boolean,
+    val status: String = "APPROVED", val local: Boolean = false,
+) {
+    val pending: Boolean get() = local || status == "PENDING_APPROVAL"
+}
 data class Driver(val id: Int, val name: String)
 data class Operator(val id: Int, val name: String, val pinHash: String)
 
@@ -21,6 +30,10 @@ data class DeviceConfig(
     val drivers: List<Driver>,
     val operators: List<Operator>,
     val params: IssuanceParams,
+    val factoryName: String = "",
+    /** Truck numbers this phone may give to a truck it registers offline. */
+    val truckIdBlocks: List<IntRange> = emptyList(),
+    val photoRequired: Boolean = true,
 ) {
     fun truck(id: Int) = trucks.firstOrNull { it.id == id }
     fun driver(id: Int) = drivers.firstOrNull { it.id == id }
@@ -47,7 +60,8 @@ data class DeviceConfig(
                 geofence = fence,
                 trucks = content.getJSONArray("trucks").objects().map {
                     Truck(it.getInt("id"), it.getString("fleetNumber"), it.optStringOrNull("plate"),
-                        if (it.isNull("defaultDriverId")) null else it.getInt("defaultDriverId"), it.getBoolean("active"))
+                        if (it.isNull("defaultDriverId")) null else it.getInt("defaultDriverId"), it.getBoolean("active"),
+                        status = it.optString("status", "APPROVED"))
                 },
                 drivers = content.getJSONArray("drivers").objects().map { Driver(it.getInt("id"), it.getString("name")) },
                 operators = content.getJSONArray("operators").objects().map {
@@ -60,7 +74,13 @@ data class DeviceConfig(
                     gpsMaxAgeS = p.getInt("gpsMaxAgeS"),
                     gpsMaxAccuracyM = p.getInt("gpsMaxAccuracyM").toFloat(),
                     maxUnsyncedTickets = p.getInt("maxUnsyncedTickets"),
+                    syncOverdueBlocks = p.optString("syncOverduePolicy", "BLOCK") != "WARN",
                 ),
+                factoryName = content.optString("factoryName", ""),
+                truckIdBlocks = content.optJSONArray("truckIdBlocks")?.let { arr ->
+                    (0 until arr.length()).map { i -> arr.getJSONArray(i).let { b -> b.getInt(0)..b.getInt(1) } }
+                } ?: emptyList(),
+                photoRequired = p.optBoolean("photoRequired", true),
             )
         }
 

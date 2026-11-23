@@ -19,7 +19,26 @@ data class StoredTicket(
     val printCount: Int,
     val voidedAt: Long?,
     val voidReason: String?,
-)
+    val syncedAt: Long? = null,
+    val syncDirty: Boolean = true,
+    val syncError: String? = null,
+    val hasPhoto: Boolean = true,
+) {
+    /** Where the ticket stands: saved on the phone, waiting, received by the server, or refused by it. */
+    val syncState: SyncState
+        get() = when {
+            syncError != null -> SyncState.FAILED
+            syncedAt == null -> SyncState.LOCAL
+            syncDirty -> SyncState.CHANGE_PENDING
+            else -> SyncState.SYNCED
+        }
+}
+
+enum class SyncState { LOCAL, CHANGE_PENDING, SYNCED, FAILED }
+
+/** A truck typed by the worker; it travels to the server with the next sync (status PENDING_APPROVAL there). */
+data class ProvisionalTruck(val id: Int, val plate: String, val createdAt: Long, val operatorId: Int, val syncedAt: Long?,
+    val syncError: String?)
 
 /** A ticket as it is sent to the server. */
 data class SyncRow(
@@ -54,11 +73,11 @@ object Keys {
  * even if printing fails, and a void is recorded next to it with its own signature.
  * One instance per process (screens and background sync share it).
  */
-class Store private constructor(context: Context) : SQLiteOpenHelper(context, "quarry.db", null, 2) {
+class Store private constructor(context: Context) : SQLiteOpenHelper(context, "quarry.db", null, 3) {
 
     companion object {
         private const val SELECT = "SELECT seq, ticket_id, truck_id, driver_id, operator_id, issued_at, flags, bytes, " +
-            "qr_text, short_code, print_count, voided_at, void_reason FROM tickets "
+            "qr_text, short_code, print_count, voided_at, void_reason, synced_at, sync_dirty, sync_error, photo_path FROM tickets "
 
         @Volatile private var instance: Store? = null
 
@@ -98,6 +117,22 @@ class Store private constructor(context: Context) : SQLiteOpenHelper(context, "q
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX tickets_truck ON tickets (truck_id, issued_at)")
+        createProvisionalTrucks(db)
+    }
+
+    private fun createProvisionalTrucks(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE provisional_trucks (
+                id INTEGER PRIMARY KEY,
+                plate TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                operator_id INTEGER NOT NULL,
+                synced_at INTEGER,
+                sync_error TEXT
+            )
+            """.trimIndent()
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -107,6 +142,34 @@ class Store private constructor(context: Context) : SQLiteOpenHelper(context, "q
             db.execSQL("ALTER TABLE tickets ADD COLUMN photo_wanted INTEGER NOT NULL DEFAULT 1")
             db.execSQL("ALTER TABLE tickets ADD COLUMN sync_error TEXT")
         }
+        if (oldVersion < 3) createProvisionalTrucks(db)
+    }
+
+    // ------------------------------------------------------------------ trucks registered on this phone
+
+    /** Fails (primary key) if the number is already used on this phone. */
+    fun insertProvisionalTruck(id: Int, plate: String, operatorId: Int) {
+        writableDatabase.insertOrThrow("provisional_trucks", null, ContentValues().apply {
+            put("id", id); put("plate", plate); put("created_at", System.currentTimeMillis() / 1000); put("operator_id", operatorId)
+        })
+    }
+
+    fun provisionalTrucks(): List<ProvisionalTruck> =
+        readableDatabase.rawQuery(
+            "SELECT id, plate, created_at, operator_id, synced_at, sync_error FROM provisional_trucks ORDER BY id", null
+        ).use { c ->
+            buildList {
+                while (c.moveToNext()) add(ProvisionalTruck(c.getInt(0), c.getString(1), c.getLong(2), c.getInt(3),
+                    if (c.isNull(4)) null else c.getLong(4), c.getString(5)))
+            }
+        }
+
+    fun markTruckSynced(id: Int, at: Long) {
+        writableDatabase.execSQL("UPDATE provisional_trucks SET synced_at = ?, sync_error = NULL WHERE id = ?", arrayOf<Any?>(at, id))
+    }
+
+    fun markTruckError(id: Int, error: String) {
+        writableDatabase.execSQL("UPDATE provisional_trucks SET sync_error = ? WHERE id = ?", arrayOf<Any?>(error, id))
     }
 
     // ------------------------------------------------------------------ key/value
@@ -212,7 +275,8 @@ class Store private constructor(context: Context) : SQLiteOpenHelper(context, "q
     /** Synced tickets whose photo the server still wants: (seq, photo path). */
     fun photosToUpload(limit: Int): List<Pair<Long, String>> =
         readableDatabase.rawQuery(
-            "SELECT seq, photo_path FROM tickets WHERE synced_at IS NOT NULL AND photo_wanted = 1 ORDER BY seq LIMIT $limit", null
+            "SELECT seq, photo_path FROM tickets WHERE synced_at IS NOT NULL AND photo_wanted = 1 AND photo_path <> '' " +
+                "ORDER BY seq LIMIT $limit", null
         ).use { c -> buildList { while (c.moveToNext()) add(c.getLong(0) to c.getString(1)) } }
 
     fun markPhotoDone(seq: Long) {
@@ -236,6 +300,8 @@ class Store private constructor(context: Context) : SQLiteOpenHelper(context, "q
         operatorId = c.getInt(4), issuedAt = c.getLong(5), flags = c.getInt(6), bytes = c.getBlob(7),
         qrText = c.getString(8), shortCode = c.getString(9), printCount = c.getInt(10),
         voidedAt = if (c.isNull(11)) null else c.getLong(11), voidReason = c.getString(12),
+        syncedAt = if (c.isNull(13)) null else c.getLong(13), syncDirty = c.getInt(14) == 1,
+        syncError = c.getString(15), hasPhoto = c.getString(16).isNotEmpty(),
     )
 
     private fun longQuery(sql: String, vararg args: String): Long? =

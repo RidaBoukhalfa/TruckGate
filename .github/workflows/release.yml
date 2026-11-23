@@ -21,7 +21,7 @@ defaults:
 env:
   TG_VERSION: "1.0.0"
   # Android app version and oldest supported Android (API 26 = Android 8.0), checked in the APK
-  APK_VERSION_NAME: "1.0.2"
+  APK_VERSION_NAME: "1.1.0"
   APK_MIN_SDK: "26"
   PG_VERSION: "16.16"
   # EnterpriseDB "PostgreSQL binaries" zip for Windows x64 (linked from postgresql.org/download/windows)

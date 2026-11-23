@@ -14,6 +14,8 @@ data class IssuanceParams(
     val gpsMaxAgeS: Int = 120,
     val gpsMaxAccuracyM: Float = 150f,
     val maxUnsyncedTickets: Int = 500,
+    /** Supervisor policy for a phone not synced for [syncMaxAgeS]: block issuance (default) or only warn. */
+    val syncOverdueBlocks: Boolean = true,
 )
 
 data class IssuanceContext(
@@ -54,6 +56,10 @@ sealed interface IssuanceDecision {
  * (docs/DECISIONS.md: 20-minute truck rule, geofence, GPS time, 24-hour sync rule).
  */
 object IssuanceRules {
+    /** Hours since the last sync when it is older than the limit (shown as a warning when it does not block). */
+    fun syncOverdueHours(nowS: Long, lastSyncAt: Long, p: IssuanceParams): Long? =
+        if (p.syncMaxAgeS > 0 && nowS - lastSyncAt > p.syncMaxAgeS) (nowS - lastSyncAt) / 3600 else null
+
     fun decide(ctx: IssuanceContext, p: IssuanceParams): IssuanceDecision {
         val blocked = mutableListOf<BlockReason>()
         var flags = 0
@@ -94,7 +100,7 @@ object IssuanceRules {
             }
         }
 
-        if (p.syncMaxAgeS > 0 && issuedAt - ctx.lastSyncAt > p.syncMaxAgeS)
+        if (p.syncOverdueBlocks && p.syncMaxAgeS > 0 && issuedAt - ctx.lastSyncAt > p.syncMaxAgeS)
             blocked += BlockReason.SyncOverdue((issuedAt - ctx.lastSyncAt) / 3600)
         if (ctx.unsyncedCount >= p.maxUnsyncedTickets) blocked += BlockReason.TooManyUnsynced(ctx.unsyncedCount)
 

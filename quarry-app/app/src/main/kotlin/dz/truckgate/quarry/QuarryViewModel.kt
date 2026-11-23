@@ -16,7 +16,9 @@ import dz.truckgate.quarry.core.IssuanceDecision
 import dz.truckgate.quarry.core.IssuanceRules
 import dz.truckgate.quarry.core.PaperWidth
 import dz.truckgate.quarry.core.PinHash
+import dz.truckgate.quarry.core.PlateRules
 import dz.truckgate.quarry.core.PrinterProfile
+import dz.truckgate.quarry.core.ProvisionalIds
 import dz.truckgate.quarry.core.ServerAddress
 import dz.truckgate.quarry.data.DeviceConfig
 import dz.truckgate.quarry.data.Driver
@@ -175,6 +177,8 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
                 val r = withContext(Dispatchers.IO) { SyncEngine(getApplication<Application>()).run(includePhotos = true) }
                 config = r.config
                 message = str(R.string.sync_done, r.sent, r.photos, r.config?.version ?: 0) +
+                    (if (r.trucksSent > 0) "\n" + str(R.string.sync_trucks_sent, r.trucksSent) else "") +
+                    (if (r.trucksRejected > 0) "\n" + str(R.string.sync_trucks_rejected, r.trucksRejected) else "") +
                     (if (r.rejected > 0) "\n" + str(R.string.sync_rejected, r.rejected) else "") +
                     (if (r.photosRefused > 0) "\n" + str(R.string.sync_photos_refused, r.photosRefused) else "")
             } catch (e: Exception) {
@@ -270,9 +274,75 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------------ new ticket
 
     fun startTicket() {
-        step = 0; truck = null; driver = null; driverChangeReason = null; photo = null; blocked = emptyList()
+        step = 0; truck = null; driver = null; driverChangeReason = null; photo = null; noPhoto = false; blocked = emptyList()
         screen = Screen.NewTicket
     }
+
+    /** The worker chose to issue without a photo (only when the supervisor made the photo optional). */
+    var noPhoto by mutableStateOf(false)
+
+    val photoRequired: Boolean get() = config?.photoRequired ?: true
+
+    /**
+     * Trucks the worker can choose: the server's list (approved and waiting for approval) and the trucks
+     * typed on this phone that the server has not confirmed yet. A truck the supervisor rejected or merged
+     * disappears with the next configuration.
+     */
+    fun availableTrucks(): List<Truck> {
+        val cfg = config ?: return emptyList()
+        val known = cfg.trucks.map { it.id }.toSet()
+        val local = store.provisionalTrucks()
+            .filter { it.id !in known && (it.syncedAt == null || cfg.generatedAt < it.syncedAt) && it.syncError == null }
+            .map { Truck(it.id, "P" + it.id, it.plate, null, true, status = "PENDING_APPROVAL", local = true) }
+        return cfg.trucks + local
+    }
+
+    sealed interface AddTruckResult {
+        data class Added(val truck: Truck) : AddTruckResult
+        data class Duplicate(val truck: Truck) : AddTruckResult
+        data object Invalid : AddTruckResult
+        data object NoNumberLeft : AddTruckResult
+    }
+
+    /**
+     * "إضافة شاحنة جديدة": checks the registration number, looks for the same truck typed differently,
+     * gives it a number reserved for this phone and keeps it locally until the next sync. The worker never
+     * sets the owner or the price: the supervisor completes them when approving.
+     */
+    fun addTruck(typedPlate: String): AddTruckResult {
+        val cfg = config ?: return AddTruckResult.Invalid
+        val op = operator ?: return AddTruckResult.Invalid
+        val plate = PlateRules.normalize(typedPlate) ?: return AddTruckResult.Invalid
+        val key = PlateRules.key(plate)
+        availableTrucks().firstOrNull { PlateRules.key(it.plate) == key }?.let { return AddTruckResult.Duplicate(it) }
+        val used = (cfg.trucks.map { it.id } + store.provisionalTrucks().map { it.id }).toSet()
+        val id = ProvisionalIds.next(cfg.truckIdBlocks, used) ?: return AddTruckResult.NoNumberLeft
+        store.insertProvisionalTruck(id, plate, op.id)
+        SyncWorker.kick(getApplication<Application>())
+        val t = Truck(id, "P$id", plate, null, true, status = "PENDING_APPROVAL", local = true)
+        return AddTruckResult.Added(t)
+    }
+
+    /** The "add" button of the new-truck screen: continues with the new truck, or with the existing one it matches. */
+    fun confirmAddTruck(typedPlate: String) {
+        when (val r = addTruck(typedPlate)) {
+            is AddTruckResult.Added -> chooseTruck(r.truck)
+            is AddTruckResult.Duplicate -> {
+                message = str(R.string.truck_duplicate, r.truck.fleetNumber, r.truck.plate.orEmpty())
+                chooseTruck(r.truck)
+            }
+            AddTruckResult.Invalid -> message = str(R.string.plate_invalid)
+            AddTruckResult.NoNumberLeft -> message = str(R.string.truck_no_number)
+        }
+    }
+
+    /** Sync overdue: hours since the last sync when over the limit (a warning when the policy only warns). */
+    val syncOverdueHours: Long?
+        get() {
+            val cfg = config ?: return null
+            val last = store.get(K_LAST_SYNC)?.toLongOrNull() ?: return null
+            return IssuanceRules.syncOverdueHours(System.currentTimeMillis() / 1000, last, cfg.params)
+        }
 
     /** Minutes left before this truck can get a new ticket (20-minute rule), 0 if available. */
     fun waitMinutes(t: Truck): Int {
@@ -317,12 +387,17 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /** Set from "sign and print" until the ticket is saved or the fingerprint is cancelled: one ticket per press. */
+    private var issuing = false
+
     fun signAndPrint(activity: FragmentActivity) {
+        if (issuing || busy) return
         val cfg = config ?: return
         val t = truck ?: return
         val d = driver ?: return
         val op = operator ?: return
-        val file = photo ?: return
+        val file = photo
+        if (file == null && (photoRequired || !noPhoto)) return
         val decision = decide()
         if (decision is IssuanceDecision.Blocked) {
             blocked = decision.reasons
@@ -335,27 +410,36 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
             message = str(R.string.key_invalidated)
             return
         }
+        issuing = true
         Biometric.unlock(activity, signature, str(R.string.biometric_title), str(R.string.biometric_subtitle),
             str(R.string.cancel),
             onUnlocked = { unlocked -> issue(unlocked, allowed, cfg, t, d, op, file) },
-            onError = { message = it })
+            onError = { issuing = false; message = it })
     }
 
     private fun issue(
-        unlocked: Signature, a: IssuanceDecision.Allowed, cfg: DeviceConfig, t: Truck, d: Driver, op: Operator, file: File,
+        unlocked: Signature, a: IssuanceDecision.Allowed, cfg: DeviceConfig, t: Truck, d: Driver, op: Operator, file: File?,
     ) {
+        // The same truck cannot get a second ticket within the cooldown, even if the button was pressed twice.
+        val last = store.lastIssuedAtForTruck(t.id)
+        if (last != null && a.issuedAt - last < cfg.params.truckCooldownS) {
+            issuing = false
+            screen = Screen.Home
+            return
+        }
         busy = true
         viewModelScope.launch {
             try {
                 val seq = withContext(Dispatchers.IO) {
-                    val photoHash = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+                    // 32 zero bytes = issued without a photo (allowed only when the supervisor made it optional)
+                    val photoHash = file?.let { MessageDigest.getInstance("SHA-256").digest(it.readBytes()) } ?: ByteArray(32)
                     val seq = store.nextSeq()
                     val fields = TicketFields(TicketFields.KIND_TRANSPORT, cfg.deviceId, seq, a.issuedAt, a.clockDelta,
                         t.id, d.id, op.id, a.latE6, a.lonE6, a.flags, cfg.version, photoHash)
                     val issued = TicketIssuer.issue(fields, UnlockedTicketSigner(unlocked, DeviceKeys.ticketPublicKey))
                     // Saved before printing: a number is never reused, even if the printer fails.
                     store.insertTicket(seq, issued.ticketId, t.id, d.id, op.id, a.issuedAt, a.flags, issued.bytes,
-                        issued.qrText, issued.shortCode, file.absolutePath, photoHash.joinToString("") { "%02x".format(it) },
+                        issued.qrText, issued.shortCode, file?.absolutePath ?: "", photoHash.joinToString("") { "%02x".format(it) },
                         driverChangeReason)
                     seq
                 }
@@ -366,6 +450,7 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
                 message = str(R.string.error, e.message ?: e.javaClass.simpleName)
             } finally {
                 busy = false
+                issuing = false
             }
         }
     }
@@ -401,14 +486,20 @@ class QuarryViewModel(app: Application) : AndroidViewModel(app) {
         val tr = cfg?.truck(t.truckId)
         val time = DateTimeFormatter.ofPattern("yyyy-MM-dd  HH:mm").withZone(ZoneId.systemDefault())
             .format(Instant.ofEpochSecond(t.issuedAt))
+        val localTruck = if (tr == null) store.provisionalTrucks().firstOrNull { it.id == t.truckId } else null
         val header = buildList {
+            cfg?.factoryName?.takeIf { it.isNotBlank() }?.let { add(PrintLine(it, 24f, bold = true)) }
             add(PrintLine(str(R.string.ticket_title), 26f, bold = true))
             add(PrintLine(t.ticketId, 40f, bold = true))
-            add(PrintLine(str(R.string.ticket_truck, tr?.fleetNumber ?: t.truckId.toString(), tr?.plate ?: ""), 26f, bold = true))
+            add(PrintLine(str(R.string.ticket_truck, tr?.fleetNumber ?: ("P" + t.truckId), tr?.plate ?: localTruck?.plate ?: ""),
+                26f, bold = true))
+            if (tr?.pending == true || localTruck != null) add(PrintLine(str(R.string.ticket_truck_pending), 20f))
             add(PrintLine(str(R.string.ticket_driver, cfg?.driver(t.driverId)?.name ?: t.driverId.toString()), 24f))
             add(PrintLine(time, 24f))
             add(PrintLine(str(R.string.ticket_operator, cfg?.operator(t.operatorId)?.name ?: t.operatorId.toString()), 22f))
             if (t.flags and TicketFields.FLAG_NO_GPS != 0) add(PrintLine(str(R.string.ticket_no_gps), 20f))
+            add(PrintLine(str(if (t.hasPhoto) R.string.ticket_photo_yes else R.string.ticket_photo_no), 20f))
+            add(PrintLine(str(if (t.voidedAt != null) R.string.ticket_status_voided else R.string.ticket_status_issued), 20f))
         }
         val footer = buildList {
             add(PrintLine(str(R.string.ticket_code, t.shortCode), 26f, bold = true))
