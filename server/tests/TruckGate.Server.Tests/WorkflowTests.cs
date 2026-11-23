@@ -321,6 +321,42 @@ public class WorkflowTests(DatabaseFixture fx)
     }
 
     [Fact]
+    public async Task Training_export_lists_every_trip_with_only_human_labels()
+    {
+        var env = await NewEnvAsync();
+        var now = await env.NowAsync();
+        var labelled = await env.EnterAsync(1, 5, now - 900);
+        var plain = await env.EnterAsync(2, 5, now - 800);
+        await env.Review.AnnotateAsync(labelled, ["LOADED_TRUCK", "NORMAL_TRIP"], "ok", null, T);
+
+        var today = Today(env);
+        var zipPath = await env.Review.ExportDatasetAsync(today, today, "Africa/Algiers", includeVideos: true);
+        try
+        {
+            using var zip = System.IO.Compression.ZipFile.OpenRead(zipPath);
+            using var reader = new StreamReader(zip.GetEntry("trips.jsonl")!.Open());
+            var lines = (await reader.ReadToEndAsync()).Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(l => JsonDocument.Parse(l).RootElement).ToDictionary(e => e.GetProperty("trip_id").GetInt64());
+            Assert.Equal(2, lines.Count);
+            var a = lines[labelled];
+            Assert.True(a.GetProperty("human_verified").GetBoolean());
+            Assert.Equal(new[] { "LOADED_TRUCK", "NORMAL_TRIP" },
+                a.GetProperty("labels").EnumerateArray().Select(x => x.GetString()!).OrderBy(x => x).ToArray());
+            Assert.Equal("FULL", a.GetProperty("entry_decision").GetString());
+            var b = lines[plain];
+            Assert.False(b.GetProperty("human_verified").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, b.GetProperty("labels").ValueKind); // never filled in automatically
+            Assert.Empty(b.GetProperty("videos").EnumerateArray());
+            using var readme = new StreamReader(zip.GetEntry("README.txt")!.Open());
+            Assert.Contains("1 labelled by a supervisor", await readme.ReadToEndAsync());
+        }
+        finally
+        {
+            File.Delete(zipPath);
+        }
+    }
+
+    [Fact]
     public async Task Supervisor_settings_scope_photo_policy_and_ticket_without_photo()
     {
         var env = await NewEnvAsync();

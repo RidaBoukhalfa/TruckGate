@@ -366,7 +366,16 @@ public sealed class ReviewService(Db db, StorageOptions storage)
     /// the review decision, as a zip (images/ + labels.jsonl). Pictures failing their fingerprint are left
     /// out and listed in problems.txt. Returns the path of a temporary file deleted when closed.
     /// </summary>
-    public async Task<string> ExportDatasetAsync(DateOnly from, DateOnly to, string timeZone, CancellationToken ct = default)
+    public async Task<string> ExportDatasetAsync(DateOnly from, DateOnly to, string timeZone, CancellationToken ct = default) =>
+        await ExportDatasetAsync(from, to, timeZone, includeVideos: false, ct);
+
+    /// <summary>
+    /// Training data for a period: pictures with their labels (labels.jsonl), one line per trip with the
+    /// supervisor's trip labels (trips.jsonl) and, when asked, the passage videos. Every file is checked
+    /// against its recorded fingerprint first; a file that fails is listed in problems.txt, never exported.
+    /// </summary>
+    public async Task<string> ExportDatasetAsync(DateOnly from, DateOnly to, string timeZone, bool includeVideos,
+        CancellationToken ct = default)
     {
         if (to < from || to.DayNumber - from.DayNumber > 92)
             throw TruckGateException.Validation("PERIOD_INVALID", "Choose a period of at most 3 months.");
@@ -422,11 +431,108 @@ public sealed class ReviewService(Db db, StorageOptions storage)
                 }));
             }
             await WriteTextAsync(zip, "labels.jsonl", jsonl.ToString(), ct);
+            int pictureProblems = problems.Count;
+
+            // One line per trip: the human trip labels, the gate and review decisions, and its videos.
+            var trips = await db.ReadAsync(async conn => (await conn.QueryAsync<TripExportRow>("""
+                SELECT tr.id, tr.trip_number, tr.truck_id, tg.effective_truck_id(tr.truck_id) AS effective_truck_id,
+                       t.approval_status AS truck_status, tr.driver_id, tr.load_status, tr.current_state AS state,
+                       tk.ticket_id, gs.scanned_at AS entered_at, gx.scanned_at AS exited_at,
+                       coalesce(tk.photo_sha256 <> decode(repeat('00', 32), 'hex'), true) AS photo_expected,
+                       EXISTS (SELECT 1 FROM tg.ticket_photos ph WHERE ph.device_id = tr.ticket_device_id
+                               AND ph.seq = tr.ticket_seq) AS photo_received,
+                       ge.decision AS entry_decision, gdx.decision AS exit_decision,
+                       (SELECT r.decision FROM tg.reviews r WHERE r.trip_id = tr.id AND r.decision IS NOT NULL
+                        ORDER BY r.decided_at DESC LIMIT 1) AS review_decision,
+                       a.labels AS trip_labels, a.note AS label_note, u.full_name AS labelled_by, a.annotated_at AS labelled_at
+                FROM tg.trips tr
+                JOIN tg.gate_scans gs ON gs.id = tr.entry_scan_id
+                JOIN tg.tickets tk ON tk.device_id = tr.ticket_device_id AND tk.seq = tr.ticket_seq
+                LEFT JOIN tg.gate_scans gx ON gx.id = tr.exit_scan_id
+                LEFT JOIN tg.trucks t ON t.id = tr.truck_id
+                LEFT JOIN tg.gate_decisions ge ON ge.gate_scan_id = tr.entry_scan_id
+                LEFT JOIN tg.gate_decisions gdx ON gdx.gate_scan_id = tr.exit_scan_id
+                LEFT JOIN LATERAL (SELECT x.labels, x.note, x.annotated_by, x.annotated_at FROM tg.trip_annotations x
+                                   WHERE x.trip_id = tr.id ORDER BY x.id DESC LIMIT 1) a ON true
+                LEFT JOIN tg.users u ON u.id = a.annotated_by
+                WHERE (gs.scanned_at AT TIME ZONE @timeZone)::date BETWEEN @from AND @to
+                ORDER BY tr.id
+                """, new { timeZone, from = from.ToDateTime(TimeOnly.MinValue), to = to.ToDateTime(TimeOnly.MinValue) },
+                commandTimeout: 300)).ToList(), ct);
+            var videos = await db.ReadAsync(async conn => (await conn.QueryAsync<VideoExportRow>("""
+                SELECT v.id, tr.id AS trip_id, v.gate_scan_id, v.camera_id, v.camera_config_version, v.direction, v.status,
+                       v.window_start, v.window_end, v.media_start, v.media_end, v.duration_ms, v.path, v.sha256, v.error
+                FROM tg.video_recordings v
+                JOIN tg.trips tr ON tr.entry_scan_id = v.gate_scan_id OR tr.exit_scan_id = v.gate_scan_id
+                JOIN tg.gate_scans gs ON gs.id = tr.entry_scan_id
+                WHERE (gs.scanned_at AT TIME ZONE @timeZone)::date BETWEEN @from AND @to
+                ORDER BY v.id
+                """, new { timeZone, from = from.ToDateTime(TimeOnly.MinValue), to = to.ToDateTime(TimeOnly.MinValue) },
+                commandTimeout: 300)).ToList(), ct);
+
+            var videoFiles = new Dictionary<long, string>();
+            if (includeVideos)
+            {
+                foreach (var v in videos.Where(v => v.Status is "OK" or "PARTIAL" && v.Path is not null && v.Sha256 is not null))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var full = Path.GetFullPath(Path.Combine(root, v.Path!));
+                    bool ok = false;
+                    if (full.StartsWith(root, StringComparison.Ordinal) && File.Exists(full))
+                    {
+                        await using var fs = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        ok = (await SHA256.HashDataAsync(fs, ct)).AsSpan().SequenceEqual(v.Sha256);
+                    }
+                    if (!ok)
+                    {
+                        problems.Add($"video {v.Id}\t{(File.Exists(full) ? "fingerprint mismatch" : "missing")}\t{v.Path}");
+                        continue;
+                    }
+                    var name = $"videos/{v.Id}.mp4";
+                    var entry = zip.CreateEntry(name, CompressionLevel.NoCompression);
+                    await using (var es = entry.Open())
+                    await using (var fs = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read))
+                        await fs.CopyToAsync(es, ct);
+                    videoFiles[v.Id] = name;
+                }
+            }
+
+            var byTrip = videos.ToLookup(v => v.TripId);
+            var tripsJsonl = new StringBuilder();
+            foreach (var tr in trips)
+            {
+                tripsJsonl.AppendLine(JsonSerializer.Serialize(new
+                {
+                    trip_id = tr.Id, trip_number = tr.TripNumber, ticket_id = tr.TicketId, truck_id = tr.TruckId,
+                    effective_truck_id = tr.EffectiveTruckId, truck_status = tr.TruckStatus, driver_id = tr.DriverId,
+                    entered_at = tr.EnteredAt, exited_at = tr.ExitedAt, state = tr.State, trip_load = tr.LoadStatus,
+                    quarry_photo = tr.PhotoExpected ? (tr.PhotoReceived ? "RECEIVED" : "NOT_RECEIVED") : "NONE",
+                    entry_decision = tr.EntryDecision, exit_decision = tr.ExitDecision, review_decision = tr.ReviewDecision,
+                    // Human labels only: null when nobody labelled the trip (never filled in automatically).
+                    labels = tr.TripLabels, label_note = tr.LabelNote, labelled_by = tr.LabelledBy, labelled_at = tr.LabelledAt,
+                    human_verified = tr.LabelledAt is not null,
+                    videos = byTrip[tr.Id].Select(v => new
+                    {
+                        video_id = v.Id, scan_id = v.GateScanId, direction = v.Direction, camera_id = v.CameraId,
+                        camera_config_version = v.CameraConfigVersion, status = v.Status, window_start = v.WindowStart,
+                        window_end = v.WindowEnd, media_start = v.MediaStart, media_end = v.MediaEnd, duration_ms = v.DurationMs,
+                        sha256 = v.Sha256 is null ? null : Convert.ToHexStringLower(v.Sha256), error = v.Error,
+                        file = videoFiles.GetValueOrDefault(v.Id),
+                    }),
+                }));
+            }
+            await WriteTextAsync(zip, "trips.jsonl", tripsJsonl.ToString(), ct);
+            int labelled = trips.Count(x => x.LabelledAt is not null);
             await WriteTextAsync(zip, "README.txt", $"""
                 TruckGate training data {from:yyyy-MM-dd} .. {to:yyyy-MM-dd}
                 labels.jsonl: one line per picture. "labels" are set by supervisors (latest label wins).
                 gate_decision / review_decision / trip_load are weaker labels from the gate and the review.
-                Pictures: {rows.Count - problems.Count} exported, {problems.Count} refused (see problems.txt).
+                trips.jsonl: one line per trip. "labels" are the supervisor's trip labels (NORMAL_TRIP, EMPTY_TRUCK,
+                LOADED_TRUCK, INCOMPLETE_CARGO, WRONG_TRUCK, PLATE_UNREADABLE, POSSIBLE_MISMATCH, CAMERA_FAILURE,
+                NEEDS_REVIEW); human_verified is true only when a person set them. Nothing here is produced by a model.
+                Pictures: {rows.Count - pictureProblems} exported, {pictureProblems} refused (see problems.txt).
+                Trips: {trips.Count} ({labelled} labelled by a supervisor). Videos listed: {videos.Count};
+                video files {(includeVideos ? $"exported: {videoFiles.Count}" : "not included (ask with videos=true)")}.
 
                 """, ct);
             if (problems.Count > 0) await WriteTextAsync(zip, "problems.txt", string.Join('\n', problems) + "\n", ct);
@@ -473,6 +579,49 @@ public sealed class ReviewService(Db db, StorageOptions storage)
         public bool HasPhoto { get; set; }
         public string? DriverChangeReason { get; set; }
         public bool Voided { get; set; }
+    }
+
+    private sealed class TripExportRow
+    {
+        public long Id { get; set; }
+        public string TripNumber { get; set; } = "";
+        public int TruckId { get; set; }
+        public int EffectiveTruckId { get; set; }
+        public string? TruckStatus { get; set; }
+        public int DriverId { get; set; }
+        public string? LoadStatus { get; set; }
+        public string State { get; set; } = "";
+        public string TicketId { get; set; } = "";
+        public DateTime EnteredAt { get; set; }
+        public DateTime? ExitedAt { get; set; }
+        public bool PhotoExpected { get; set; }
+        public bool PhotoReceived { get; set; }
+        public string? EntryDecision { get; set; }
+        public string? ExitDecision { get; set; }
+        public string? ReviewDecision { get; set; }
+        public string[]? TripLabels { get; set; }
+        public string? LabelNote { get; set; }
+        public string? LabelledBy { get; set; }
+        public DateTime? LabelledAt { get; set; }
+    }
+
+    private sealed class VideoExportRow
+    {
+        public long Id { get; set; }
+        public long TripId { get; set; }
+        public long GateScanId { get; set; }
+        public int CameraId { get; set; }
+        public int CameraConfigVersion { get; set; }
+        public string Direction { get; set; } = "";
+        public string Status { get; set; } = "";
+        public DateTime WindowStart { get; set; }
+        public DateTime WindowEnd { get; set; }
+        public DateTime? MediaStart { get; set; }
+        public DateTime? MediaEnd { get; set; }
+        public int? DurationMs { get; set; }
+        public string? Path { get; set; }
+        public byte[]? Sha256 { get; set; }
+        public string? Error { get; set; }
     }
 
     private sealed class ExportRow
