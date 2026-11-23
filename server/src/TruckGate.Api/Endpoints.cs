@@ -19,6 +19,7 @@ public static class Policies
     public const string Reports = "reports";
     public const string Pay = "pay";
     public const string PayWrite = "pay-write";
+    public const string Supervise = "supervise";
 }
 
 internal static class HttpContextUser
@@ -33,10 +34,11 @@ internal static class HttpContextUser
 
 public sealed record LoginRequest(string Username, string Secret);
 public sealed record ScanRequest(short GateId, string QrText);
-public sealed record ScanView(string Kind, ScanEntryResult Scan, TicketNames? Names, IReadOnlyList<SnapshotInfo> Snapshots);
+public sealed record ScanView(string Kind, ScanEntryResult Scan, TicketNames? Names, IReadOnlyList<SnapshotInfo> Snapshots,
+    IReadOnlyList<TruckPassage>? Passages = null);
 public sealed record ExitView(string Kind, ScanExitResult Exit, IReadOnlyList<SnapshotInfo> Snapshots);
 public sealed record ManualCodeRequest(short GateId, string TicketId, string ShortCode);
-public sealed record DecisionRequest(EntryDecision Decision, string? Note);
+public sealed record DecisionRequest(EntryDecision Decision, string? Note, string? ObservedPlate = null);
 public sealed record RevokeRequest(string Reason);
 public sealed record CreateSiteRequest(string Code, string Name, string Kind);
 public sealed record CreateGateRequest(string Code, string Name, int? SiteId);
@@ -124,7 +126,8 @@ internal static partial class Endpoints
             var (result, pictures) = await WithPicturesAsync(cams, r.GateId,
                 () => svc.ScanEntryAsync(new ScanEntryRequest(r.GateId, text, ctx.UserId()), ctx.Actor(), ct), x => x.ScanId);
             var names = result.Ticket is null ? null : await svc.NamesAsync(result.Ticket, ct);
-            return Results.Ok(new ScanView("ENTRY", result, names, pictures));
+            var passages = result.Ticket is null ? null : await svc.PassagesAsync(result.Ticket.TruckId, result.TripId, 5, ct);
+            return Results.Ok(new ScanView("ENTRY", result, names, pictures, passages));
         });
 
         // Damaged QR: ticket number + short code, checked against the copy synced from the phone.
@@ -138,7 +141,7 @@ internal static partial class Endpoints
 
         gate.MapPost("/scans/{scanId:long}/decision", async (long scanId, DecisionRequest r, GateService svc,
                 HttpContext ctx, CancellationToken ct) =>
-            Results.Ok(await svc.RecordEntryDecisionAsync(scanId, r.Decision, r.Note, ctx.UserId(), ctx.Actor(), ct)));
+            Results.Ok(await svc.RecordEntryDecisionAsync(scanId, r.Decision, r.Note, r.ObservedPlate, ctx.UserId(), ctx.Actor(), ct)));
 
         gate.MapGet("/scans/{scanId:long}/snapshots", async (long scanId, CameraService cams, CancellationToken ct) =>
             Results.Ok(await cams.ListForScanAsync(scanId, ct)));
@@ -229,24 +232,6 @@ internal static partial class Endpoints
             await svc.SetDefaultDriverAsync(id, r.DriverId, ctx.Actor(), ct);
             return Results.NoContent();
         });
-
-        // cameras: discover, probe, preview, choose
-        admin.MapGet("/cameras", async (CameraService cams, CancellationToken ct) => Results.Ok(await cams.ListAsync(ct)));
-        admin.MapPost("/cameras/discover", async (CameraService cams, CancellationToken ct) =>
-            Results.Ok(await cams.DiscoverAsync(ct)));
-        admin.MapPost("/cameras/probe", async (ProbeRequest r, CameraService cams, CancellationToken ct) =>
-            Results.Ok(await cams.ProbeOnvifAsync(r.OnvifUrl, r.Username, r.Password, ct)));
-        admin.MapPost("/cameras/test", async (TestSnapshotRequest r, CameraService cams, CancellationToken ct) =>
-            Results.File(await cams.TestAsync(r.SnapshotUrl, r.Username, r.Password, ct), "image/jpeg"));
-        admin.MapPost("/cameras", async (CameraInput r, CameraService cams, HttpContext ctx, CancellationToken ct) =>
-            Results.Ok(new { id = await cams.CreateAsync(r, ctx.Actor(), ct) }));
-        admin.MapPut("/cameras/{id:int}", async (int id, CameraUpdate r, CameraService cams, HttpContext ctx, CancellationToken ct) =>
-        {
-            await cams.UpdateAsync(id, r, ctx.Actor(), ct);
-            return Results.NoContent();
-        });
-        admin.MapGet("/cameras/{id:int}/test", async (int id, CameraService cams, CancellationToken ct) =>
-            Results.File(await cams.TestCameraAsync(id, ct), "image/jpeg"));
 
         // integrity
         var audit = app.MapGroup("/api/audit").RequireAuthorization(Policies.Audit);

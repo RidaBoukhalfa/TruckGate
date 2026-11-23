@@ -20,7 +20,11 @@ public sealed record ScanEntryResult(
 
 /// <summary>What the gatekeeper reads on screen for a scanned ticket.</summary>
 public sealed record TicketNames(string? FleetNumber, string? Plate, string? DriverName, bool DriverIsDefault,
-    string? OperatorName);
+    string? OperatorName, string? TruckStatus, bool HasPhoto, bool PhotoExpected, string? FactoryName);
+
+/// <summary>Earlier passages of the same truck, newest first, shown next to a scan.</summary>
+public sealed record TruckPassage(long TripId, string TripNumber, string TicketId, DateTime EnteredAt, DateTime? ExitedAt,
+    string State, string? LoadStatus);
 
 public sealed record EntryDecisionResult(
     long TripId, string TripNumber, string State, string? LoadStatus, long? ReviewId, IReadOnlyList<string> ReviewReasons);
@@ -31,6 +35,9 @@ public sealed record EntryDecisionResult(
 /// </summary>
 public sealed class GateService(Db db)
 {
+    public const string TruckPendingApproval = "TRUCK_PENDING_APPROVAL";
+    public const string TruckNotSynced = "TRUCK_NOT_SYNCED";
+
     private static readonly HashSet<string> NotAuthentic = new(StringComparer.Ordinal)
     {
         GateReasons.Malformed, GateReasons.UnknownDevice, GateReasons.WrongDeviceKind, GateReasons.BadSignature,
@@ -121,7 +128,18 @@ public sealed class GateService(Db db)
         var parameters = await Settings.LoadGatePolicyAsync(conn, tx);
         var result = GatePolicy.Evaluate(qrText, now, lookup, parameters);
         var reasons = result.Reasons.ToList();
+        var notes = result.Notes.ToList();
         var outcome = result.Outcome;
+        // A truck registered on a quarry phone: known and waiting for approval, or not synced yet but
+        // carrying a number reserved for that phone. It may enter; the supervisor confirms it.
+        if (decoded is not null && outcome != GateOutcome.Reject
+            && (lookup.TruckApproval == "PENDING_APPROVAL" || (lookup.TruckApproval is null && lookup.InDeviceBlock)))
+        {
+            reasons.Remove(GateReasons.UnknownTruck);
+            if (lookup.TruckApproval is null) notes.Add(TruckNotSynced);
+            reasons.Add(TruckPendingApproval);
+            outcome = GateOutcome.Pending;
+        }
         if (manual && outcome != GateOutcome.Reject)
         {
             if (outcome == GateOutcome.Accept) reasons.Clear();
@@ -135,7 +153,7 @@ public sealed class GateService(Db db)
 
         long scanId = await InsertScanAsync(conn, tx, gateId, "ENTRY", scanType, rawText,
             authentic ? (int?)decoded!.Fields.DeviceId : null, authentic ? (long?)decoded!.Fields.Seq : null,
-            outcomeText, reasons, result.Notes, gatekeeperId);
+            outcomeText, reasons, notes, gatekeeperId);
 
         long? tripId = null;
         string? tripNumber = null;
@@ -173,7 +191,7 @@ public sealed class GateService(Db db)
                 f.IssuedAt, now - f.IssuedAt, f.Flags, TicketCodec.ShortCode(bytes));
         }
 
-        return new ScanEntryResult(scanId, tripId, tripNumber, outcomeText, reasons, result.Notes, summary);
+        return new ScanEntryResult(scanId, tripId, tripNumber, outcomeText, reasons, notes, summary);
     }
 
     internal static async Task EnsureGateAsync(NpgsqlConnection conn, NpgsqlTransaction tx, short gateId)
@@ -199,8 +217,17 @@ public sealed class GateService(Db db)
             }, tx);
 
     public Task<EntryDecisionResult> RecordEntryDecisionAsync(long scanId, EntryDecision decision, string? note,
-        int? decidedBy, Actor actor, CancellationToken ct = default)
+        int? decidedBy, Actor actor, CancellationToken ct = default) =>
+        RecordEntryDecisionAsync(scanId, decision, note, null, decidedBy, actor, ct);
+
+    /// <summary><paramref name="observedPlate"/>: what the gatekeeper reads on a truck the server does not know yet.</summary>
+    public Task<EntryDecisionResult> RecordEntryDecisionAsync(long scanId, EntryDecision decision, string? note,
+        string? observedPlate, int? decidedBy, Actor actor, CancellationToken ct = default)
     {
+        string? plate = null;
+        if (!string.IsNullOrWhiteSpace(observedPlate))
+            plate = PlateRules.Normalize(observedPlate) ?? throw TruckGateException.Validation("PLATE_INVALID",
+                "Type the registration number you see (6 to 12 digits).");
         return db.InTransactionAsync(actor, async (conn, tx) =>
         {
             var scan = await conn.QuerySingleOrDefaultAsync<ScanRow>(
@@ -227,9 +254,9 @@ public sealed class GateService(Db db)
             };
 
             await conn.ExecuteAsync("""
-                INSERT INTO tg.gate_decisions (gate_scan_id, decision, decided_by, note)
-                VALUES (@scan, @decision, @by, @note)
-                """, new { scan = scanId, decision = dbDecision, by = decidedBy, note }, tx);
+                INSERT INTO tg.gate_decisions (gate_scan_id, decision, decided_by, note, observed_plate)
+                VALUES (@scan, @decision, @by, @note, @plate)
+                """, new { scan = scanId, decision = dbDecision, by = decidedBy, note, plate }, tx);
 
             if (load is not null)
                 await conn.ExecuteAsync("UPDATE tg.trips SET load_status = @load WHERE id = @id",
@@ -275,8 +302,30 @@ public sealed class GateService(Db db)
                     ORDER BY valid_from DESC LIMIT 1) AS plate,
                    (SELECT full_name FROM tg.drivers WHERE id = @driver) AS drivername,
                    coalesce((SELECT default_driver_id = @driver FROM tg.trucks WHERE id = @truck), false) AS driverisdefault,
-                   (SELECT full_name FROM tg.users WHERE id = @op) AS operatorname
-            """, new { truck = t.TruckId, driver = t.DriverId, op = t.OperatorId }), ct);
+                   (SELECT full_name FROM tg.users WHERE id = @op) AS operatorname,
+                   (SELECT approval_status FROM tg.trucks WHERE id = @truck) AS truckstatus,
+                   EXISTS (SELECT 1 FROM tg.ticket_photos ph WHERE ph.device_id = @dev AND ph.seq = @seq) AS hasphoto,
+                   coalesce((SELECT tk.photo_sha256 <> decode(repeat('00', 32), 'hex') FROM tg.tickets tk
+                             WHERE tk.device_id = @dev AND tk.seq = @seq), true) AS photoexpected,
+                   (SELECT value #>> '{}' FROM tg.settings WHERE key = 'site.factory_name') AS factoryname
+            """, new { truck = t.TruckId, driver = t.DriverId, op = t.OperatorId, dev = t.DeviceId, seq = t.Seq }), ct);
+
+    /// <summary>Last passages of this truck (and of the provisional trucks merged into it).</summary>
+    public Task<IReadOnlyList<TruckPassage>> PassagesAsync(int truckId, long? exceptTripId, int limit = 5,
+        CancellationToken ct = default) =>
+        db.ReadAsync<IReadOnlyList<TruckPassage>>(async conn => (await conn.QueryAsync<TruckPassage>("""
+            SELECT tr.id AS tripid, tr.trip_number AS tripnumber,
+                   'Q' || tr.ticket_device_id || '-' || tg.fmt_seq(tr.ticket_seq) AS ticketid,
+                   gs.scanned_at AS enteredat, xs.scanned_at AS exitedat, tr.current_state AS state, tr.load_status AS loadstatus
+            FROM tg.trips tr
+            JOIN tg.gate_scans gs ON gs.id = tr.entry_scan_id
+            LEFT JOIN tg.gate_scans xs ON xs.id = tr.exit_scan_id
+            WHERE tr.truck_id IN (SELECT x.id FROM tg.trucks x
+                                  WHERE x.id = tg.effective_truck_id(@truckId) OR x.merged_into = tg.effective_truck_id(@truckId)
+                                  UNION SELECT @truckId)
+              AND tr.id IS DISTINCT FROM @exceptTripId
+            ORDER BY gs.scanned_at DESC LIMIT @limit
+            """, new { truckId, exceptTripId, limit })).ToList(), ct);
 
     // ------------------------------------------------------------------ helpers
 
@@ -345,6 +394,12 @@ public sealed class GateService(Db db)
 
         private RegisteredDevice? _device;
         private TruckState? _truck;
+
+        /// <summary>Approval status of the truck number carried by the ticket; null when the server does not know it.</summary>
+        public string? TruckApproval { get; private set; }
+
+        /// <summary>The unknown truck number is one reserved for the phone that signed the ticket.</summary>
+        public bool InDeviceBlock { get; private set; }
         private string? _ticketId;
         private bool _used;
         private bool _voided;
@@ -362,17 +417,31 @@ public sealed class GateService(Db db)
                     dev.Kind == "QUARRY_PHONE" ? DeviceKind.QuarryPhone : DeviceKind.GateStation,
                     dev.PublicKeySpki, dev.RevokedAt);
 
+            // A merged provisional truck counts as the truck it was merged into (activity and truck gap).
             var truck = await conn.QuerySingleOrDefaultAsync<TruckRow>("""
-                SELECT t.id, t.active,
+                SELECT t.id, t.approval_status,
+                       (coalesce(e.active, t.active)
+                        AND coalesce(e.approval_status, t.approval_status) IN ('APPROVED', 'PENDING_APPROVAL')) AS active,
                        (SELECT extract(epoch FROM max(gs.scanned_at))::bigint
                         FROM tg.trips tr JOIN tg.gate_scans gs ON gs.id = tr.entry_scan_id
-                        WHERE tr.truck_id = t.id AND tr.current_state <> 'REJECTED'
+                        WHERE tr.truck_id IN (SELECT x.id FROM tg.trucks x
+                                              WHERE x.id = coalesce(t.merged_into, t.id) OR x.merged_into = coalesce(t.merged_into, t.id))
+                          AND tr.current_state <> 'REJECTED'
                           -- only entries made with other tickets: a replay is ALREADY_USED, not a truck gap
                           AND NOT (tr.ticket_device_id = @d AND tr.ticket_seq = @s)) AS last_entry_at
-                FROM tg.trucks t WHERE t.id = @id
+                FROM tg.trucks t LEFT JOIN tg.trucks e ON e.id = t.merged_into
+                WHERE t.id = @id
                 """, new { id = (int)f.TruckId, d = (int)f.DeviceId, s = (long)f.Seq }, tx);
             if (truck is not null)
+            {
                 l._truck = new TruckState((ushort)truck.Id, truck.Active, truck.LastEntryAt);
+                l.TruckApproval = truck.ApprovalStatus;
+            }
+            else
+            {
+                l.InDeviceBlock = ProvisionalTruckIds.Contains(f.TruckId)
+                    && await FleetService.IsDeviceBlockIdAsync(conn, tx, f.DeviceId, f.TruckId);
+            }
 
             var args = new { d = (int)f.DeviceId, s = (long)f.Seq };
             l._used = await conn.ExecuteScalarAsync<bool>(
@@ -399,6 +468,7 @@ public sealed class GateService(Db db)
         private sealed class TruckRow
         {
             public int Id { get; set; }
+            public string ApprovalStatus { get; set; } = "";
             public bool Active { get; set; }
             public long? LastEntryAt { get; set; }
         }

@@ -182,6 +182,8 @@ public sealed class AdminService(Db db)
         Actor actor, CancellationToken ct = default)
     {
         if (id is < 1 or > 65535) throw TruckGateException.Validation("TRUCK_ID_RANGE", "Truck id must be 1..65535.");
+        if (ProvisionalTruckIds.Contains(id))
+            throw TruckGateException.Validation("TRUCK_ID_RESERVED", "Numbers from 40000 are reserved for the quarry phones.");
         if (string.IsNullOrWhiteSpace(fleetNumber))
             throw TruckGateException.Validation("FLEET_NUMBER_REQUIRED", "Fleet number is required.");
         return Guard(db.InTransactionAsync(actor, async (conn, tx) =>

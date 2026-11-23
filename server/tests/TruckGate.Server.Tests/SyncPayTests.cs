@@ -164,7 +164,10 @@ public class SyncPayTests(DatabaseFixture fx)
 
         var noPrice = await Assert.ThrowsAsync<TruckGateException>(() => env.Reports.CreatePaymentBatchAsync(today, today, null, null, T));
         Assert.Equal("PRICE_NOT_SET", noPrice.Code);
-        await env.SetAsync("trip.price_per_trip", "1500");
+        // the price is per truck (1.1); the global value is no longer used for payments
+        await env.SetAsync("trip.price_per_trip", "9999");
+        Assert.Equal(2, (await env.Reports.StatementAsync(today, today)).Excluded.Count(e => e.Reason == "NO_PRICE"));
+        await new FleetService(env.Db).SetPriceAsync(env.TruckId, 1500m, "contract", null, T);
 
         var st = await env.Reports.StatementAsync(today, today);
         var line = Assert.Single(st.Lines);
@@ -172,6 +175,10 @@ public class SyncPayTests(DatabaseFixture fx)
         Assert.Equal(1, line.Partial);
         Assert.Equal(2250m, line.Amount);
         Assert.Equal(1, st.NotYetPayable);
+        var truckLine = Assert.Single(st.Trucks);
+        Assert.Equal(1500m, truckLine.PricePerTrip);
+        Assert.Equal(2250m, truckLine.Total);
+        Assert.Equal("UNPAID", truckLine.PaymentStatus);
         var csv = System.Text.Encoding.UTF8.GetString(ReportService.StatementCsv(st, "ar"));
         Assert.Contains("سائق 1", csv);
         Assert.Contains("2250.00", csv);

@@ -74,6 +74,8 @@ builder.Services.AddSingleton<ExitService>();
 builder.Services.AddSingleton<ReviewService>();
 builder.Services.AddSingleton<SyncService>();
 builder.Services.AddSingleton<ReportService>();
+builder.Services.AddSingleton<FleetService>();
+builder.Services.AddSingleton<ReceiptsService>();
 builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<Watchdog>();
 builder.Services.AddHttpClient("telegram", http => http.Timeout = TimeSpan.FromSeconds(20));
@@ -139,7 +141,8 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(Policies.Alerts, p => p.RequireRole("SUPERVISOR", "ADMIN", "MANAGER"))
     .AddPolicy(Policies.Reports, p => p.RequireRole("SUPERVISOR", "ADMIN", "MANAGER", "ACCOUNTANT", "AUDITOR"))
     .AddPolicy(Policies.Pay, p => p.RequireRole("ACCOUNTANT", "ADMIN", "MANAGER"))
-    .AddPolicy(Policies.PayWrite, p => p.RequireRole("ACCOUNTANT", "ADMIN"));
+    .AddPolicy(Policies.PayWrite, p => p.RequireRole("ACCOUNTANT", "ADMIN"))
+    .AddPolicy(Policies.Supervise, p => p.RequireRole("SUPERVISOR", "ADMIN"));
 
 var app = builder.Build();
 
@@ -187,6 +190,7 @@ app.Use(async (ctx, next) =>
             ErrorKind.NotFound => StatusCodes.Status404NotFound,
             ErrorKind.Conflict => StatusCodes.Status409Conflict,
             ErrorKind.Unauthorized => StatusCodes.Status401Unauthorized,
+            ErrorKind.Forbidden => StatusCodes.Status403Forbidden,
             _ => StatusCodes.Status400BadRequest,
         };
         await ctx.Response.WriteAsJsonAsync(new { error = e.Code, message = e.Message });
@@ -245,6 +249,8 @@ app.MapExitEndpoints();
 app.MapReviewEndpoints();
 app.MapAlertEndpoints();
 app.MapReportEndpoints();
+app.MapFleetEndpoints();
+app.MapWorkflowEndpoints();
 app.MapFallbackToFile("index.html");
 
 await app.RunAsync();

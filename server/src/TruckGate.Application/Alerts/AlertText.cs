@@ -40,6 +40,17 @@ public static class AlertText
         ["SYNC_BAD_VOID"] = ("إلغاء وصل بتوقيع غير صالح", "Annulation à signature invalide"),
         ["SYNC_VOID_AFTER_USE"] = ("إلغاء وصل بعد استعماله عند البوابة", "Ticket annulé après passage au portail"),
         ["SYNC_PHOTO_MISMATCH"] = ("صورة المقلع لا تطابق الوصل", "Photo de carrière non conforme au ticket"),
+        ["TRUCK_REGISTERED"] = ("تمت إضافة شاحنة جديدة بواسطة عامل المقلع", "Nouveau camion ajouté par la carrière"),
+        ["TRUCK_APPROVED"] = ("شاحنة جديدة اعتُمدت", "Nouveau camion approuvé"),
+        ["TRUCK_REJECTED"] = ("شاحنة جديدة رُفضت", "Nouveau camion refusé"),
+        ["TRUCK_MERGED"] = ("شاحنة جديدة دُمجت مع شاحنة موجودة", "Nouveau camion fusionné avec un existant"),
+        ["SYNC_TRUCK_ID_NOT_ALLOWED"] = ("هاتف أرسل شاحنة برقم غير محجوز له", "Téléphone : numéro de camion non autorisé"),
+        ["SYNC_TRUCK_CONFLICT"] = ("شاحنتان مختلفتان بنفس الرقم", "Deux camions différents, même numéro"),
+        ["RECORDING_FAILED"] = ("فشل تسجيل فيديو المرور", "Échec de l'enregistrement vidéo du passage"),
+        ["RECORDER_OFFLINE"] = ("كاميرا الفيديو لا ترسل الصورة", "Caméra vidéo sans flux"),
+        ["VIDEO_TAMPERED"] = ("فيديو دليل معدَّل", "Vidéo de preuve modifiée"),
+        ["VIDEO_MISSING"] = ("فيديو دليل مفقود", "Vidéo de preuve manquante"),
+        ["STORAGE_LOW"] = ("مساحة القرص تقترب من الامتلاء", "Disque presque plein"),
         ["TEST"] = ("رسالة تجريبية من TruckGate", "Message de test TruckGate"),
     };
 

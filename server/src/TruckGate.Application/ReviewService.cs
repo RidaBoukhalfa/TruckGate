@@ -25,6 +25,9 @@ public sealed class ReviewQueueItem
     public bool IsSample { get; set; }
     public string[] Reasons { get; set; } = [];
     public DateTime OpenedAt { get; set; }
+    public bool Investigating { get; set; }
+    public string? LastNote { get; set; }
+    public string? TruckStatus { get; set; }
 }
 
 /// <summary>Mutable for Dapper (PostgreSQL arrays are not matched to constructor parameters).</summary>
@@ -65,9 +68,28 @@ public sealed record StateEventRecord(string? FromState, string ToState, string 
 public sealed record TicketDetail(string TicketId, DateTime IssuedAt, int ClockDelta, int Flags, double? Lat, double? Lon,
     int ConfigVersion, string? OperatorName, string FirstSeenVia, bool HasPhoto, string? DriverChangeReason, bool Voided);
 
+public sealed record ReviewNoteItem(long Id, string Kind, string Note, string? CreatedByName, DateTime CreatedAt);
+
+/// <summary>Mutable for Dapper (PostgreSQL arrays are not matched to constructor parameters).</summary>
+public sealed class TripAnnotationItem
+{
+    public long Id { get; set; }
+    public string[] Labels { get; set; } = [];
+    public string? Note { get; set; }
+    public string? AnnotatedByName { get; set; }
+    public DateTime AnnotatedAt { get; set; }
+}
+
+public sealed record VideoItem(long Id, long ScanId, int CameraId, string CameraLabel, string Direction, string Status,
+    DateTime ScanAt, DateTime WindowStart, DateTime WindowEnd, int? DurationMs, long? SizeBytes, string? Error);
+
+public sealed record TruckSummary(int Id, string FleetNumber, string ApprovalStatus, string? OwnerLastName, string? OwnerFirstName,
+    string? ReportedPlate, int? MergedInto);
+
 public sealed record TripDetail(TripCard Trip, TicketDetail? Ticket, IReadOnlyList<ScanDetail> Scans,
     IReadOnlyList<SnapshotDetail> Snapshots, IReadOnlyList<ReviewRecord> Reviews, IReadOnlyList<StateEventRecord> Events,
-    int ReceiptPrints);
+    int ReceiptPrints, IReadOnlyList<ReviewNoteItem> Notes, IReadOnlyList<TripAnnotationItem> Annotations,
+    IReadOnlyList<VideoItem> Videos, TruckSummary? Truck);
 
 public sealed record ReviewDecisionResult(long TripId, string TripNumber, string State, int ReviewsClosed);
 
@@ -79,6 +101,8 @@ public sealed class ReviewService(Db db, StorageOptions storage)
 {
     public static readonly string[] LoadLabels = ["FULL", "PARTIAL", "EMPTY", "NOT_VISIBLE"];
     public static readonly string[] QualityLabels = ["GOOD", "BLURRED", "DARK", "GLARE", "OBSTRUCTED"];
+    public static readonly string[] TripLabels = ["NORMAL_TRIP", "EMPTY_TRUCK", "LOADED_TRUCK", "INCOMPLETE_CARGO", "WRONG_TRUCK",
+        "PLATE_UNREADABLE", "POSSIBLE_MISMATCH", "CAMERA_FAILURE", "NEEDS_REVIEW"];
 
     public Task<IReadOnlyList<ReviewQueueItem>> QueueAsync(bool includeSamples, CancellationToken ct = default) =>
         db.ReadAsync<IReadOnlyList<ReviewQueueItem>>(async conn => (await conn.QueryAsync<ReviewQueueItem>("""
@@ -90,7 +114,12 @@ public sealed class ReviewService(Db db, StorageOptions storage)
                         WHEN 1 THEN 'HIGH' WHEN 2 THEN 'NORMAL' ELSE 'LOW' END AS priority,
                    bool_and(r.is_random_sample) AS issample,
                    array_agg(DISTINCT rc) AS reasons,
-                   min(r.created_at) AS openedat
+                   min(r.created_at) AS openedat,
+                   EXISTS (SELECT 1 FROM tg.review_notes n WHERE n.trip_id = tr.id AND n.kind = 'INVESTIGATE'
+                           AND n.created_at >= (SELECT min(r2.created_at) FROM tg.reviews r2
+                                                WHERE r2.trip_id = tr.id AND r2.decision IS NULL)) AS investigating,
+                   (SELECT n.note FROM tg.review_notes n WHERE n.trip_id = tr.id ORDER BY n.id DESC LIMIT 1) AS lastnote,
+                   t.approval_status AS truckstatus
             FROM tg.reviews r
             CROSS JOIN LATERAL unnest(r.reason_codes) AS rc
             JOIN tg.trips tr ON tr.id = r.trip_id
@@ -98,7 +127,7 @@ public sealed class ReviewService(Db db, StorageOptions storage)
             LEFT JOIN tg.trucks t ON t.id = tr.truck_id
             LEFT JOIN tg.drivers d ON d.id = tr.driver_id
             WHERE r.decision IS NULL AND (@includeSamples OR NOT r.is_random_sample)
-            GROUP BY tr.id, t.fleet_number, d.full_name, gs.scanned_at
+            GROUP BY tr.id, t.fleet_number, t.approval_status, d.full_name, gs.scanned_at
             ORDER BY bool_and(r.is_random_sample), min(CASE r.priority WHEN 'HIGH' THEN 1 WHEN 'NORMAL' THEN 2 ELSE 3 END),
                      min(r.created_at)
             LIMIT 500
@@ -148,11 +177,31 @@ public sealed class ReviewService(Db db, StorageOptions storage)
                 """, new { tripId })).ToList();
             var prints = await conn.ExecuteScalarAsync<int>(
                 "SELECT count(*)::int FROM tg.receipt_prints WHERE trip_id = @tripId", new { tripId });
+            var notes = (await conn.QueryAsync<ReviewNoteItem>("""
+                SELECT n.id, n.kind, n.note, u.full_name AS createdbyname, n.created_at AS createdat
+                FROM tg.review_notes n LEFT JOIN tg.users u ON u.id = n.created_by
+                WHERE n.trip_id = @tripId ORDER BY n.id
+                """, new { tripId })).ToList();
+            var annotations = (await conn.QueryAsync<TripAnnotationItem>("""
+                SELECT a.id, a.labels, a.note, u.full_name AS annotatedbyname, a.annotated_at AS annotatedat
+                FROM tg.trip_annotations a LEFT JOIN tg.users u ON u.id = a.annotated_by
+                WHERE a.trip_id = @tripId ORDER BY a.id DESC
+                """, new { tripId })).ToList();
+            var videos = (await conn.QueryAsync<VideoItem>(VideoSql + """
+                WHERE v.gate_scan_id IN (SELECT unnest(array[tr.entry_scan_id, tr.exit_scan_id]) FROM tg.trips tr WHERE tr.id = @tripId)
+                ORDER BY v.gate_scan_id, v.camera_id
+                """, new { tripId })).ToList();
+            var truck = await conn.QuerySingleOrDefaultAsync<TruckSummary>("""
+                SELECT t.id, t.fleet_number AS fleetnumber, t.approval_status AS approvalstatus,
+                       t.owner_last_name AS ownerlastname, t.owner_first_name AS ownerfirstname,
+                       t.reported_plate AS reportedplate, t.merged_into AS mergedinto
+                FROM tg.trips tr JOIN tg.trucks t ON t.id = tr.truck_id WHERE tr.id = @tripId
+                """, new { tripId });
 
             TicketDetail? t = ticket is null ? null : new TicketDetail(ticket.TicketId, ticket.IssuedAt, ticket.ClockDelta,
                 ticket.Flags, (ticket.Flags & 1) != 0 ? null : ticket.LatE6 / 1e6, (ticket.Flags & 1) != 0 ? null : ticket.LonE6 / 1e6,
                 ticket.ConfigVersion, ticket.OperatorName, ticket.FirstSeenVia, ticket.HasPhoto, ticket.DriverChangeReason, ticket.Voided);
-            return new TripDetail(card, t, scans, snapshots, reviews, events, prints);
+            return new TripDetail(card, t, scans, snapshots, reviews, events, prints, notes, annotations, videos, truck);
         }, ct);
 
     public Task<ReviewDecisionResult> DecideAsync(long tripId, ReviewDecision decision, string? reason, int? decidedBy,
@@ -161,59 +210,105 @@ public sealed class ReviewService(Db db, StorageOptions storage)
         var why = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
         if (decision == ReviewDecision.Reject && why is null)
             throw TruckGateException.Validation("REASON_REQUIRED", "A rejection needs a reason.");
+        return db.InTransactionAsync(actor, (conn, tx) => DecideCoreAsync(conn, tx, tripId, decision, why, decidedBy), ct);
+    }
 
+    /// <summary>One decision closes every open review of the trip and moves the trip (also used by truck approval).</summary>
+    internal static async Task<ReviewDecisionResult> DecideCoreAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long tripId,
+        ReviewDecision decision, string? why, int? decidedBy)
+    {
+        var trip = await Trips.LockAsync(conn, tx, tripId);
+        var open = (await conn.QueryAsync<(long Id, string[] Reasons)>(
+            "SELECT id, reason_codes FROM tg.reviews WHERE trip_id = @tripId AND decision IS NULL ORDER BY id",
+            new { tripId }, tx)).ToList();
+        if (open.Count == 0) throw TruckGateException.Conflict("NO_OPEN_REVIEW", $"{trip.TripNumber} has no open review.");
+        if (decision == ReviewDecision.Reject && trip.CurrentState == "PAID")
+            throw TruckGateException.Conflict("TRIP_PAID", $"{trip.TripNumber} is already paid; correct it in the next payment.");
+
+        var dbDecision = decision switch
+        {
+            ReviewDecision.Accept => "ACCEPT",
+            ReviewDecision.AcceptPartial => "ACCEPT_PARTIAL",
+            _ => "REJECT",
+        };
+        await conn.ExecuteAsync("""
+            UPDATE tg.reviews SET decision = @dbDecision, decision_reason = @why, decided_by = @decidedBy, decided_at = now()
+            WHERE trip_id = @tripId AND decision IS NULL
+            """, new { dbDecision, why, decidedBy, tripId }, tx);
+
+        var state = trip.CurrentState;
+        if (decision == ReviewDecision.Reject)
+        {
+            if (state != "REJECTED")
+            {
+                if (state != "PENDING_REVIEW")
+                {
+                    await Trips.TransitionAsync(conn, tx, tripId, state, "PENDING_REVIEW", "SAMPLE_REJECT", why);
+                }
+                await Trips.TransitionAsync(conn, tx, tripId, "PENDING_REVIEW", "REJECTED", "REVIEW_REJECT", why);
+                state = "REJECTED";
+            }
+        }
+        else
+        {
+            if (decision == ReviewDecision.AcceptPartial)
+                await conn.ExecuteAsync("UPDATE tg.trips SET load_status = 'PARTIAL' WHERE id = @tripId", new { tripId }, tx);
+            if (state == "PENDING_REVIEW")
+            {
+                bool noExit = open.Any(r => r.Reasons.Contains("NO_EXIT_SCAN"));
+                var target = trip.ExitScanId is not null || noExit ? "CLOSED" : "ENTERED";
+                await Trips.TransitionAsync(conn, tx, tripId, "PENDING_REVIEW", target, "REVIEW_" + dbDecision, why);
+                state = target;
+            }
+            else if (state == "EXITED_EMPTY" && !await Trips.HasBlockingReviewAsync(conn, tx, tripId))
+            {
+                await Trips.TransitionAsync(conn, tx, tripId, "EXITED_EMPTY", "CLOSED", "REVIEW_" + dbDecision, why);
+                state = "CLOSED";
+            }
+        }
+        return new ReviewDecisionResult(tripId, trip.TripNumber, state, open.Count);
+    }
+
+    /// <summary>"Request further investigation": the review stays open, the note says who asks what and when.</summary>
+    public Task InvestigateAsync(long tripId, string note, int? userId, Actor actor, CancellationToken ct = default) =>
+        AddNoteAsync(tripId, "INVESTIGATE", note, userId, actor, requireOpenReview: true, ct);
+
+    public Task NoteAsync(long tripId, string note, int? userId, Actor actor, CancellationToken ct = default) =>
+        AddNoteAsync(tripId, "NOTE", note, userId, actor, requireOpenReview: false, ct);
+
+    private Task AddNoteAsync(long tripId, string kind, string note, int? userId, Actor actor, bool requireOpenReview,
+        CancellationToken ct)
+    {
+        var text = (note ?? "").Trim();
+        if (text.Length is 0 or > 2000) throw TruckGateException.Validation("NOTE_REQUIRED", "Write what must be checked (2000 characters at most).");
         return db.InTransactionAsync(actor, async (conn, tx) =>
         {
             var trip = await Trips.LockAsync(conn, tx, tripId);
-            var open = (await conn.QueryAsync<(long Id, string[] Reasons)>(
-                "SELECT id, reason_codes FROM tg.reviews WHERE trip_id = @tripId AND decision IS NULL ORDER BY id",
-                new { tripId }, tx)).ToList();
-            if (open.Count == 0) throw TruckGateException.Conflict("NO_OPEN_REVIEW", $"{trip.TripNumber} has no open review.");
-            if (decision == ReviewDecision.Reject && trip.CurrentState == "PAID")
-                throw TruckGateException.Conflict("TRIP_PAID", $"{trip.TripNumber} is already paid; correct it in the next payment.");
-
-            var dbDecision = decision switch
-            {
-                ReviewDecision.Accept => "ACCEPT",
-                ReviewDecision.AcceptPartial => "ACCEPT_PARTIAL",
-                _ => "REJECT",
-            };
+            if (requireOpenReview && !await conn.ExecuteScalarAsync<bool>(
+                    "SELECT EXISTS (SELECT 1 FROM tg.reviews WHERE trip_id = @tripId AND decision IS NULL)", new { tripId }, tx))
+                throw TruckGateException.Conflict("NO_OPEN_REVIEW", $"{trip.TripNumber} has no open review.");
             await conn.ExecuteAsync("""
-                UPDATE tg.reviews SET decision = @dbDecision, decision_reason = @why, decided_by = @decidedBy, decided_at = now()
-                WHERE trip_id = @tripId AND decision IS NULL
-                """, new { dbDecision, why, decidedBy, tripId }, tx);
+                INSERT INTO tg.review_notes (trip_id, kind, note, created_by) VALUES (@tripId, @kind, @text, @userId)
+                """, new { tripId, kind, text, userId }, tx);
+            return 0;
+        }, ct);
+    }
 
-            var state = trip.CurrentState;
-            if (decision == ReviewDecision.Reject)
-            {
-                if (state != "REJECTED")
-                {
-                    if (state != "PENDING_REVIEW")
-                    {
-                        await Trips.TransitionAsync(conn, tx, tripId, state, "PENDING_REVIEW", "SAMPLE_REJECT", why);
-                    }
-                    await Trips.TransitionAsync(conn, tx, tripId, "PENDING_REVIEW", "REJECTED", "REVIEW_REJECT", why);
-                    state = "REJECTED";
-                }
-            }
-            else
-            {
-                if (decision == ReviewDecision.AcceptPartial)
-                    await conn.ExecuteAsync("UPDATE tg.trips SET load_status = 'PARTIAL' WHERE id = @tripId", new { tripId }, tx);
-                if (state == "PENDING_REVIEW")
-                {
-                    bool noExit = open.Any(r => r.Reasons.Contains("NO_EXIT_SCAN"));
-                    var target = trip.ExitScanId is not null || noExit ? "CLOSED" : "ENTERED";
-                    await Trips.TransitionAsync(conn, tx, tripId, "PENDING_REVIEW", target, "REVIEW_" + dbDecision, why);
-                    state = target;
-                }
-                else if (state == "EXITED_EMPTY" && !await Trips.HasBlockingReviewAsync(conn, tx, tripId))
-                {
-                    await Trips.TransitionAsync(conn, tx, tripId, "EXITED_EMPTY", "CLOSED", "REVIEW_" + dbDecision, why);
-                    state = "CLOSED";
-                }
-            }
-            return new ReviewDecisionResult(tripId, trip.TripNumber, state, open.Count);
+    /// <summary>Human labels of the whole trip for the future dataset. The new set replaces the previous one (history kept).</summary>
+    public Task AnnotateAsync(long tripId, IReadOnlyList<string> labels, string? note, int? userId, Actor actor,
+        CancellationToken ct = default)
+    {
+        var set = (labels ?? []).Select(l => (l ?? "").Trim().ToUpperInvariant()).Where(l => l.Length > 0).Distinct().ToArray();
+        if (set.Any(l => !TripLabels.Contains(l))) throw TruckGateException.Validation("LABEL_INVALID", "Unknown trip label.");
+        var text = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (text is { Length: > 2000 }) throw TruckGateException.Validation("NOTE_TOO_LONG", "2000 characters at most.");
+        return db.InTransactionAsync(actor, async (conn, tx) =>
+        {
+            await Trips.LockAsync(conn, tx, tripId);
+            await conn.ExecuteAsync("""
+                INSERT INTO tg.trip_annotations (trip_id, labels, note, annotated_by) VALUES (@tripId, @set, @text, @userId)
+                """, new { tripId, set, text, userId }, tx);
+            return 0;
         }, ct);
     }
 
@@ -345,6 +440,14 @@ public sealed class ReviewService(Db db, StorageOptions storage)
         await using var s = entry.Open();
         await s.WriteAsync(Encoding.UTF8.GetBytes(text), ct);
     }
+
+    internal const string VideoSql = """
+        SELECT v.id, v.gate_scan_id AS scanid, v.camera_id AS cameraid, c.label AS cameralabel, v.direction, v.status,
+               v.scan_at AS scanat, v.window_start AS windowstart, v.window_end AS windowend, v.duration_ms AS durationms,
+               v.size_bytes AS sizebytes, v.error
+        FROM tg.video_recordings v JOIN tg.cameras c ON c.id = v.camera_id
+
+        """;
 
     internal const string SnapshotSql = """
         SELECT s.id, s.gate_scan_id AS scanid, s.camera_id AS cameraid, c.label AS cameralabel, s.camera_role AS role,
