@@ -27,6 +27,10 @@ env:
   # EnterpriseDB "PostgreSQL binaries" zip for Windows x64 (linked from postgresql.org/download/windows)
   PG_URL: https://sbp.enterprisedb.com/getfile.jsp?fileid=1260731
   VC_REDIST_URL: https://aka.ms/vs/17/release/vc_redist.x64.exe
+  # FFmpeg for the passage video: BtbN LGPL shared build of the 8.1 release branch (bug-fix updates only).
+  # The URL floats within the branch; the exact build (version, commit, zip SHA-256) is recorded in info/ffmpeg.txt.
+  FFMPEG_BRANCH: "8.1"
+  FFMPEG_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip
 
 jobs:
   android:
@@ -233,10 +237,39 @@ jobs:
             "vc_redist_sha256=$((Get-FileHash out/redist/vc_redist.x64.exe -Algorithm SHA256).Hash)"
             "vc_redist_signer=$($sig.SignerCertificate.Subject)"
           ) | Tee-Object out/info/vc-redist.txt
+      - name: FFmpeg ${{ env.FFMPEG_BRANCH }} LGPL for the passage video (download, check licence, formats, run)
+        run: |
+          $zip = "$env:RUNNER_TEMP\ffmpeg.zip"
+          curl.exe -L --fail --retry 3 --silent --show-error -o $zip $env:FFMPEG_URL
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Expand-Archive $zip "$env:RUNNER_TEMP\ffx"
+          $src = (Get-ChildItem "$env:RUNNER_TEMP\ffx" -Directory | Select-Object -First 1).FullName
+          New-Item -ItemType Directory out/ffmpeg -Force | Out-Null
+          Copy-Item "$src\bin\ffmpeg.exe", "$src\bin\ffprobe.exe" out/ffmpeg/
+          # the libav* libraries only; SDL is used by ffplay, which is not shipped
+          Get-ChildItem "$src\bin" -Filter *.dll | Where-Object { $_.Name -notmatch '(?i)^sdl' } | Copy-Item -Destination out/ffmpeg/
+          Get-ChildItem $src -File | Where-Object { $_.Name -match '(?i)^(licen[cs]e|copying)' } | Copy-Item -Destination out/ffmpeg/
+          if (!(Get-ChildItem out/ffmpeg -File | Where-Object { $_.Name -match '(?i)^licen' })) { throw 'FFmpeg licence file missing' }
+          $ver = (& out/ffmpeg/ffmpeg.exe -hide_banner -version) -join "`n"
+          if ($LASTEXITCODE) { throw "ffmpeg does not run: $ver" }
+          if ($ver -notmatch "ffmpeg version n$([regex]::Escape($env:FFMPEG_BRANCH))") { throw "unexpected version: $ver" }
+          if ($ver -match '--enable-gpl|--enable-nonfree') { throw 'not an LGPL build' }
+          $fmts = (& out/ffmpeg/ffmpeg.exe -hide_banner -formats) -join "`n"
+          foreach ($f in 'rtsp', 'mpegts', 'mp4', 'concat', 'segment') { if ($fmts -notmatch "\b$f\b") { throw "ffmpeg lacks $f" } }
+          & out/ffmpeg/ffprobe.exe -hide_banner -version | Out-Null
+          if ($LASTEXITCODE) { throw 'ffprobe does not run' }
+          @(
+            "ffmpeg_version=$(($ver -split "`n")[0])"
+            "ffmpeg_url=$env:FFMPEG_URL"
+            "ffmpeg_zip_sha256=$((Get-FileHash $zip -Algorithm SHA256).Hash)"
+            "ffmpeg_bundled_bytes=$((Get-ChildItem out/ffmpeg -Recurse -File | Measure-Object Length -Sum).Sum)"
+            "ffmpeg_configuration=$((($ver -split "`n") | Where-Object { $_ -like 'configuration:*' }) -join ' ')"
+          ) | Tee-Object out/info/ffmpeg.txt
+          Copy-Item out/info/ffmpeg.txt out/ffmpeg/BUILD-INFO.txt
       - name: Documents shipped with the installer
         run: |
           New-Item -ItemType Directory out/docs -Force | Out-Null
-          Copy-Item release/INSTALLATION_GUIDE.md out/docs/
+          Copy-Item release/INSTALLATION_GUIDE.md, docs/WORKFLOW.md, docs/OPERATIONS.md out/docs/
       - name: Build installer (Inno Setup 6)
         id: iscc
         run: |

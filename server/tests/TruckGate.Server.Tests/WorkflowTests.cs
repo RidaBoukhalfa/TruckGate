@@ -166,6 +166,14 @@ public class WorkflowTests(DatabaseFixture fx)
         Assert.Equal(1500m, truck.Price);
         Assert.True(truck.Complete);
         Assert.Contains("09876 112 31", truck.ObservedPlates);
+        // the phones receive the approved truck (number and plate) in their next signed configuration
+        using (var doc = JsonDocument.Parse((await env.Enrollment.GetSignedConfigAsync(env.Phone.DeviceId)).Payload))
+        {
+            var t = doc.RootElement.GetProperty("content").GetProperty("trucks").EnumerateArray()
+                .Single(x => x.GetProperty("id").GetInt32() == newId);
+            Assert.Equal("APPROVED", t.GetProperty("status").GetString());
+            Assert.Equal("C-77", t.GetProperty("fleetNumber").GetString());
+        }
 
         await env.ExitEmptyAsync(tripId);
         Assert.Equal("CLOSED", await env.StateAsync(tripId));

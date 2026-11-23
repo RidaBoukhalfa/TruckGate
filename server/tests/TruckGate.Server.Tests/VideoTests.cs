@@ -168,6 +168,10 @@ public class VideoTests(DatabaseFixture fx)
             var scan2 = await gate.ScanEntryAsync(new ScanEntryRequest(gateId, phone.Ticket(2, 5, driver, now - 800), null), T);
             Assert.Equal(2, await video.RegisterScanAsync(scan2.ScanId));
             Assert.All(await video.ListForScanAsync(scan1.ScanId), v => Assert.Equal("RECORDING", v.Status));
+            // the first truck leaves right away: its exit is a third, separate passage clip per camera
+            await gate.RecordEntryDecisionAsync(scan1.ScanId, EntryDecision.Full, null, null, null, T);
+            var exit = await new ExitService(db, ServerSigningKey.Ephemeral()).ScanManualAsync(gateId, scan1.TripId!.Value, null, T);
+            Assert.Equal(2, await video.RegisterScanAsync(exit.ScanId));
 
             // finalize like the service does, until the four recordings are done (window end + margin)
             var deadline = DateTime.UtcNow.AddSeconds(75);
@@ -195,7 +199,7 @@ public class VideoTests(DatabaseFixture fx)
 
             // separate files, never mixed, in the trip folder, fingerprint and description kept
             var rows = (await db.ReadAsync(c => c.QueryAsync<(long Id, string Path, string MetadataPath, byte[] Sha)>(
-                "SELECT id, path, metadata_path, sha256 FROM tg.video_recordings WHERE camera_id = @good ORDER BY id", new { good }))).ToList();
+                "SELECT v.id, v.path, v.metadata_path, v.sha256 FROM tg.video_recordings v JOIN tg.gate_scans s ON s.id = v.gate_scan_id WHERE v.camera_id = @good AND s.direction = 'ENTRY' ORDER BY v.id", new { good }))).ToList();
             Assert.Equal(2, rows.Count);
             Assert.NotEqual(rows[0].Path, rows[1].Path);
             Assert.Matches(@"^media/\d{4}/\d{2}/\d{2}/trips/T-\d{6}/entry_cam\d{2}_v\d+\.mp4$", rows[0].Path);
@@ -207,6 +211,12 @@ public class VideoTests(DatabaseFixture fx)
                 Assert.Equal(scan1.TripNumber, meta.RootElement.GetProperty("trip_number").GetString());
                 Assert.Equal("ENTRY", meta.RootElement.GetProperty("gate_operation").GetString());
             }
+
+            var exitClip = (await video.ListForScanAsync(exit.ScanId)).Single(v => v.CameraId == good);
+            Assert.Equal(("OK", "EXIT"), (exitClip.Status, exitClip.Direction));
+            var exitPath = await db.ReadAsync(c => c.ExecuteScalarAsync<string>(
+                "SELECT path FROM tg.video_recordings WHERE gate_scan_id = @s AND camera_id = @good", new { s = exit.ScanId, good }));
+            Assert.Matches($@"^media/\d{{4}}/\d{{2}}/\d{{2}}/trips/{scan1.TripNumber}/exit_cam\d{{2}}_v\d+\.mp4$", exitPath);
 
             // the dead camera: FAILED, alerted, sent to review — never shown as recorded
             var failed = (await video.ListForScanAsync(scan1.ScanId)).Single(v => v.CameraId == dead);

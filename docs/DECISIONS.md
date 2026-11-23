@@ -126,3 +126,35 @@ older phones: StrongBox only from Android 9 and only on some phones; some older 
 a key attestation certificate — the key is then still created in Android Keystore and the server
 stores the attestation as missing. Android 8.0 is the floor because the app uses java.time and
 java.util.Base64 (API 26). Emulator tests run on Android 8.0, 9, 10, 11 and 14.
+
+## Workflow 1.1 — 2026-11-23
+
+- **New trucks from the quarry phone.** The phone may register a truck offline. Numbers 40000–65535 are
+  reserved for phones in blocks of ten (`truck_id_blocks`, given in the signed configuration), so two
+  phones never create the same number. Plates compare by digits only (Arabic digits, spaces, dashes).
+  The server keeps the truck `PENDING_APPROVAL` until a supervisor approves it with the five fields
+  (truck number, last name, first name, registration, price), rejects it with a reason, or merges it into
+  an existing truck (`merged_into`; trips count for the target through `tg.effective_truck_id`). A
+  database trigger refuses any other status change. Existing trucks were migrated as approved with the
+  global price in force at the time of the upgrade.
+- **Pending trucks may enter.** The gate shows *NEW TRUCK* (`TRUCK_PENDING_APPROVAL`, pending outcome);
+  a number reserved for the signing phone but not synced yet is treated the same way and the gatekeeper
+  types the plate he reads (`gate_decisions.observed_plate`). Approval / merge closes reviews whose only
+  reasons were the unknown / pending truck.
+- **Payable = approved + priced + closed + exit recorded + no open review.** Price per truck with
+  history (`truck_prices`, price in force at entry). Corrections are adjustments applied to the next
+  batch; recorded batches never change. Batches are per truck (`pricing = PER_TRUCK`); 1.0 batches keep
+  their global price.
+- **Passage video.** Continuous stream copy (no re-encoding) of each recording camera into 2-second
+  MPEG-TS segments by `ffmpeg`; on each scan the window [scan − 30 s, scan + 30 s] is cut from the
+  segments into one MP4 per camera and scan, with JSON metadata and SHA-256 in the database. Status is
+  never upgraded: missing footage is `FAILED` (alert + review reason), a gap is `PARTIAL`. Times come
+  from the server clock (segment file times), not from the cameras. FFmpeg LGPL (shared libraries) is
+  shipped with the Windows installer; the recorder can be turned off with `Video:Disabled`.
+- **Supervisors** manage trucks, cameras and operating settings; alert channels, sign-in rules and the
+  time zone remain administrator-only (enforced in `SettingsService`).
+- **Training data is human-labelled only.** Trip labels and picture labels are set by supervisors; the
+  export marks `human_verified`. TruckGate 1.1 contains **no** automatic image or video analysis.
+- **Web interface**: Arabic-first RTL, IBM Plex Sans Arabic (OFL, bundled — no internet needed), graphite
+  sidebar, signal colours reserved for states, six fixed gate states.
+

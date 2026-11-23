@@ -64,6 +64,8 @@ Name: "desktopicon"; Description: "{cm:TaskDesktop}"; GroupDescription: "{cm:Add
 Source: "{#SourceRoot}\server\*"; DestDir: "{app}\server"; Components: server; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceRoot}\pgsql\*"; DestDir: "{app}\pgsql"; Components: server; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceRoot}\redist\vc_redist.x64.exe"; DestDir: "{tmp}"; Components: server; Flags: deleteafterinstall
+; FFmpeg (LGPL, shared libraries) for the passage video; the server finds it in {app}\ffmpeg
+Source: "{#SourceRoot}\ffmpeg\*"; DestDir: "{app}\ffmpeg"; Components: server; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "scripts\common.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "scripts\configure.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "scripts\open-gate-station.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion

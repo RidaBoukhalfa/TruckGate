@@ -67,10 +67,18 @@ builder.Services.AddSingleton(_ => new StorageOptions(
     builder.Configuration["Storage:Root"] ?? Path.Combine(dataDir, "snapshots")));
 builder.Services.AddSingleton(sp => new CameraService(sp.GetRequiredService<Db>(), sp.GetRequiredService<SecretBox>(),
     sp.GetRequiredService<StorageOptions>()));
-// Event video: ffmpeg/ffprobe are bundled by the Windows installer (Video:FfmpegPath); "ffmpeg" from PATH otherwise.
+// Event video: ffmpeg/ffprobe come with the Windows installer ({app}\ffmpeg, next to {app}\server); a path in
+// Video:FfmpegPath / Video:FfprobePath wins; otherwise "ffmpeg" / "ffprobe" from PATH (Linux, development).
+static string VideoTool(string? configured, string name)
+{
+    if (configured is { Length: > 0 }) return configured;
+    var bundled = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "ffmpeg",
+        OperatingSystem.IsWindows() ? name + ".exe" : name));
+    return File.Exists(bundled) ? bundled : name;
+}
 builder.Services.AddSingleton(sp => new VideoService(sp.GetRequiredService<Db>(), new VideoOptions(
-    builder.Configuration["Video:FfmpegPath"] is { Length: > 0 } ff ? ff : "ffmpeg",
-    builder.Configuration["Video:FfprobePath"] is { Length: > 0 } fp ? fp : "ffprobe",
+    VideoTool(builder.Configuration["Video:FfmpegPath"], "ffmpeg"),
+    VideoTool(builder.Configuration["Video:FfprobePath"], "ffprobe"),
     builder.Configuration["Video:BufferDir"] ?? Path.Combine(dataDir, "video-buffer"),
     sp.GetRequiredService<StorageOptions>().Root)));
 builder.Services.AddSingleton(_ => EnrollmentOptions.Default(
