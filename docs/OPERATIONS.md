@@ -1,5 +1,10 @@
 # Operations — supervisor, alerts, accountant, manager
 
+> Version 1.1 adds new trucks registered on the quarry phones with supervisor approval, a price per
+> truck, the passage video (30 s before and after each scan), the *Burned receipts* page, investigation
+> notes, trip labels, adjustments and payments per truck. The complete workflow, the camera requirements
+> and the acceptance scenarios are in [`WORKFLOW.md`](WORKFLOW.md).
+
 ## Trip life cycle
 
 ```
@@ -12,7 +17,8 @@ scan at entry ──► AT_GATE ──decision──► ENTERED ──exit empty
 
 Every change is a new event (who, when, why); nothing is edited or deleted. A trip is paid only when it is
 `CLOSED`: the truck entered with a valid ticket, the gatekeeper saw the load, and it left empty — or a
-supervisor accepted it.
+supervisor accepted it. Since 1.1 it must also belong to an **approved truck with a price**, and (with
+`pay.require_exit_scan`, default on) have a recorded exit.
 
 ## Supervisor (tab *Review*)
 
@@ -27,16 +33,29 @@ truck, loaded exit…). Opening a trip shows:
 - the history of the trip.
 
 Decide **accept**, **accept as partial** (paid at the partial rate) or **reject** (reason required). One
-decision closes all open reviews of the trip and cannot be changed afterwards.
+decision closes all open reviews of the trip and cannot be changed afterwards. **Request investigation**
+(with what to check) keeps the review open and marks it *investigating* in the queue; **notes** can be
+added to any trip. The trip page also plays the **passage videos** (entry and exit) and shows when a
+recording failed and why.
+
+**Trucks (tab *Trucks*).** *Pending approval* lists trucks added on the quarry phones: who added it,
+from which phone, the plate typed at the quarry and the plate seen at the gate, its trips, and a possible
+duplicate. Complete the five fields (truck number, last name, first name, registration, price per trip)
+and approve; or reject with a reason; or merge into the existing truck. *Registered trucks* opens each
+truck: edit, plate change (history kept), price change (reason required, applies to new trips), drivers,
+trips and the audit trail.
 
 **Random sample.** Every night 5 % of the previous day's accepted trips (at least one) are added to the
 queue, marked *sample*. Checking them keeps everybody honest and produces training labels. Rejecting a
 sampled trip that was not paid yet removes it from payment.
 
-**Labels for the future AI.** Under each picture: the load seen (full / partial / empty / not visible),
+**Labels for the future AI.** Trip labels (normal trip, empty truck, loaded truck, incomplete cargo,
+wrong truck, plate unreadable, possible mismatch, camera failure, needs review) and, under each picture: the load seen (full / partial / empty / not visible),
 the plate as you read it (type and press Enter), and the picture quality. The latest label wins; older
 ones stay in the history. *Export training data* downloads a zip for a period: all pictures plus
-`labels.jsonl` (camera, role, configuration version, gatekeeper decision, review decision, labels).
+`labels.jsonl` (camera, role, configuration version, gatekeeper decision, review decision, labels), and
+`trips.jsonl` (one line per trip with the trip labels and `human_verified`); tick *with videos* to add the
+passage videos that match their fingerprint. Nothing is labelled automatically.
 Pictures failing their fingerprint are left out and listed.
 
 ## Alerts (tab *Alerts*)
@@ -121,23 +140,37 @@ SIM without PIN.
 
 ## Accountant (tab *Payments*)
 
-1. Set the **price per trip** once (*Settings*, admin). Partial loads are paid at `trip.partial_pay_percent`
-   (100 % by the agreed rule) and stay marked.
-2. Choose the period: the statement lists, per driver, the `CLOSED` trips not yet paid, with full and
-   partial counts and amounts. Trips of the period still open (inside, waiting for review) are counted
-   separately — wait or ask the supervisor.
-3. **CSV (Excel)** downloads the detail and the totals (UTF-8, opens with Arabic text in Excel).
-4. **Record payment** marks those trips `PAID` for good and keeps the batch (period, price, total, note,
-   who). A paid trip cannot be rejected afterwards; a correction goes into the next payment.
+1. Each truck has its **own price per trip** (set by the supervisor when approving the truck, changed
+   with a reason). Partial loads are paid at `trip.partial_pay_percent` and stay marked.
+2. Choose the period. *Statement by truck*: per truck — eligible trips (full / partial), price, trips
+   amount, pending adjustments, total, already paid in the period, status. **Total = eligible trips ×
+   the truck's approved price (+ adjustments).** *Closed trips not payable yet* lists each excluded trip
+   and why (truck not approved, no price, exit not recorded, review open). *By driver* keeps the
+   per-driver view.
+3. **Adjustments**: a positive or negative amount for a truck (optionally a trip) with a reason. It is
+   applied in that truck's next payment; a recorded payment never changes.
+4. **CSV (Excel)** downloads trucks, trips, adjustments and drivers (UTF-8, opens with Arabic text in
+   Excel). **Print / PDF** prints the statement with a signature line (choose *Save as PDF* in the
+   print dialog).
+5. **Record the payment of the selected trucks** marks their trips `PAID` for good and keeps the batch
+   (period, per-truck prices, adjustments, total, note, who). Batches open in detail and print again.
 
-## Manager (tab *Today*)
+## Manager / supervisor (tab *Today*)
 
-Entries, exits, accepted / pending / rejected, partial loads, trucks inside, trips waiting for review,
-open alerts, phones not synced; entries per hour, per truck and per driver; the last scans. Refreshed every
-30 seconds.
+*Needs your attention*: trucks waiting for approval, trips waiting for review, critical and other alerts,
+camera failures, failed recordings today, sync problems, unclosed trips — each tile opens the page that
+handles it. *Today*: trips, completed trips, trucks inside, burned receipts, entries, exits, partial
+loads, rejected; entries per hour, per truck and per driver; the last scans. Refreshed every 30 seconds.
 
-## Settings (admin)
+**Burned receipts (tab *Burned receipts*)**: every quarry ticket used at the gate with its whole life,
+video and photo state, review and payment; filters by period, state, review and search.
 
-All business parameters with their bounds: gate times, exit deadline, price and partial rate, sample
-size, alert channels, quarry phone rules (pushed to the phones in their signed configuration at the next
-sync), login lockout. Every change is in the audit chain.
+## Settings (supervisor and administrator)
+
+All business parameters with their bounds, grouped: quarry phones (cargo photo required, policy after
+24 h without sync, cool-down, GPS — pushed to the phones in their signed configuration at the next sync),
+gate times, video (seconds before / after, segment length, retention, keep reviewed, failure opens a
+review) and storage threshold, finance (default price, partial rate, exit required for payment), review
+sample size, factory name. Supervisors change these; **alert channels, sign-in rules and the time zone
+are for the administrator only** (refused by the server for other roles). Every change is in the audit
+chain.

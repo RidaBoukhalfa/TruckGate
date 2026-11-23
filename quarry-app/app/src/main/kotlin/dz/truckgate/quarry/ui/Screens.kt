@@ -70,13 +70,16 @@ import dz.truckgate.quarry.camera.PhotoPreview
 import dz.truckgate.quarry.camera.QrScanner
 import dz.truckgate.quarry.core.BlockReason
 import dz.truckgate.quarry.core.PaperWidth
+import dz.truckgate.quarry.core.PlateRules
 import dz.truckgate.quarry.data.Operator
 import dz.truckgate.quarry.data.StoredTicket
+import dz.truckgate.quarry.data.SyncState
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val Big = 22.sp
+private const val ADD_TRUCK_STEP = 10
 private val time = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
 
 @Composable
@@ -223,6 +226,10 @@ private fun HomeScreen(vm: QuarryViewModel) {
             java.time.format.DateTimeFormatter.ofPattern("dd/MM HH:mm").withZone(java.time.ZoneId.systemDefault())
                 .format(java.time.Instant.ofEpochSecond(it))
         } ?: "—"), fontSize = 14.sp)
+        vm.syncOverdueHours?.let { hours ->
+            Text(stringResource(R.string.sync_overdue_warning, hours.toInt()), color = Color(0xFFB45309), fontSize = 16.sp,
+                fontWeight = FontWeight.Bold)
+        }
         Spacer(Modifier.height(12.dp))
         BigButton(stringResource(R.string.home_new_ticket), vm::startTicket, enabled = cfg != null)
         Text(stringResource(R.string.home_today, vm.todayCount), fontSize = 18.sp)
@@ -249,34 +256,69 @@ private fun StatusDot(ok: Boolean, label: String) {
 private fun NewTicketScreen(vm: QuarryViewModel, activity: FragmentActivity) {
     val cfg = vm.config ?: return
     BackHandler {
-        if (vm.step == 0) {
-            vm.go(Screen.Home)
-        } else {
-            vm.step -= 1
+        when (vm.step) {
+            0 -> vm.go(Screen.Home)
+            ADD_TRUCK_STEP -> vm.step = 0
+            else -> vm.step -= 1
         }
     }
     when (vm.step) {
         0 -> Page {
             Title(stringResource(R.string.choose_truck))
+            var search by remember { mutableStateOf("") }
+            OutlinedTextField(value = search, onValueChange = { search = it.take(20) }, singleLine = true,
+                label = { Text(stringResource(R.string.search_truck)) }, modifier = Modifier.fillMaxWidth())
+            val key = PlateRules.key(search)
+            val trucks = vm.availableTrucks().filter { t ->
+                search.isBlank() || t.fleetNumber.contains(search.trim(), ignoreCase = true) ||
+                    (key.length >= 2 && PlateRules.key(t.plate).contains(key))
+            }
             LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(cfg.trucks) { t ->
+                horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                items(trucks) { t ->
                     val wait = vm.waitMinutes(t)
                     val enabled = t.active && wait == 0
                     Card(
                         modifier = Modifier.height(110.dp).clickable(enabled = enabled) { vm.chooseTruck(t) },
                         colors = CardDefaults.cardColors(
-                            containerColor = if (enabled) MaterialTheme.colorScheme.primaryContainer else Color.LightGray),
+                            containerColor = when {
+                                !enabled -> Color.LightGray
+                                t.pending -> Color(0xFFFFF4D6)
+                                else -> MaterialTheme.colorScheme.primaryContainer
+                            }),
                     ) {
                         Column(Modifier.fillMaxSize().padding(6.dp), verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(t.fleetNumber, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                            Text(t.fleetNumber, fontSize = if (t.pending) 20.sp else 32.sp, fontWeight = FontWeight.Bold)
                             Text(t.plate.orEmpty(), fontSize = 12.sp)
+                            if (t.pending) Text(stringResource(R.string.truck_pending_badge), fontSize = 11.sp, color = Color(0xFFB45309))
                             if (wait > 0) Text(stringResource(R.string.truck_wait, wait), fontSize = 14.sp)
                         }
                     }
                 }
             }
+            SecondaryButton(stringResource(R.string.add_truck), { vm.step = ADD_TRUCK_STEP })
+        }
+
+        ADD_TRUCK_STEP -> Page {
+            Title(stringResource(R.string.add_truck_title))
+            Text(stringResource(R.string.add_truck_explain), fontSize = 16.sp)
+            var plate by remember { mutableStateOf("") }
+            OutlinedTextField(
+                value = plate,
+                onValueChange = { v -> if (v.length <= 20) plate = v },
+                label = { Text(stringResource(R.string.plate_label)) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                singleLine = true,
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Bold),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            val normalized = PlateRules.normalize(plate)
+            Text(normalized ?: stringResource(R.string.plate_invalid), fontSize = 18.sp,
+                color = if (normalized == null) Color(0xFFC62828) else Color(0xFF2E7D32))
+            Spacer(Modifier.weight(1f))
+            BigButton(stringResource(R.string.add_truck_confirm), { vm.confirmAddTruck(plate) }, enabled = normalized != null)
+            SecondaryButton(stringResource(R.string.back), { vm.step = 0 })
         }
 
         1 -> Page {
@@ -313,7 +355,10 @@ private fun NewTicketScreen(vm: QuarryViewModel, activity: FragmentActivity) {
                 BigButton(stringResource(if (vm.photo == null) R.string.capture else R.string.retake), {
                     capture.take(context, onSaved = { vm.photo = it }, onError = { vm.message = it })
                 })
-                BigButton(stringResource(R.string.next), { vm.step = 3 }, enabled = vm.photo != null)
+                BigButton(stringResource(R.string.next), { vm.noPhoto = false; vm.step = 3 }, enabled = vm.photo != null)
+                if (!vm.photoRequired) {
+                    SecondaryButton(stringResource(R.string.skip_photo), { vm.photo = null; vm.noPhoto = true; vm.step = 3 })
+                }
             }
         }
 
@@ -323,6 +368,8 @@ private fun NewTicketScreen(vm: QuarryViewModel, activity: FragmentActivity) {
             Text(vm.driver?.name.orEmpty(), fontSize = Big)
             vm.driverChangeReason?.let { Text(it, fontSize = 16.sp) }
             Text(vm.operator?.name.orEmpty(), fontSize = 18.sp)
+            Text(stringResource(if (vm.photo != null) R.string.review_photo_yes else R.string.review_photo_no), fontSize = 16.sp)
+            if (vm.truck?.pending == true) Text(stringResource(R.string.truck_pending_badge), color = Color(0xFFB45309), fontSize = 16.sp)
             if (vm.blocked.isNotEmpty()) {
                 HorizontalDivider()
                 Text(stringResource(R.string.blocked_title), color = Color(0xFFC62828), fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -372,7 +419,22 @@ private fun TicketRow(vm: QuarryViewModel, t: StoredTicket) {
                 else -> Text("✓", color = Color(0xFF2E7D32))
             }
         }
+        Text(syncText(t), fontSize = 13.sp, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+            color = when (t.syncState) {
+                SyncState.SYNCED -> Color(0xFF2E7D32)
+                SyncState.FAILED -> Color(0xFFC62828)
+                else -> Color(0xFFB45309)
+            })
     }
+}
+
+/** Never says "synced" before the server confirmed it. */
+@Composable
+private fun syncText(t: StoredTicket): String = when (t.syncState) {
+    SyncState.LOCAL -> stringResource(R.string.sync_state_local)
+    SyncState.CHANGE_PENDING -> stringResource(R.string.sync_state_change)
+    SyncState.SYNCED -> stringResource(R.string.sync_state_synced)
+    SyncState.FAILED -> stringResource(R.string.sync_state_failed, t.syncError.orEmpty())
 }
 
 @Composable

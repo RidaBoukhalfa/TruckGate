@@ -119,6 +119,15 @@ Check 'program files: server exe x64, PostgreSQL x64, web UI' {
     Assert (Test-Path (Join-Path $app 'server\wwwroot\index.html')) 'wwwroot missing'
     "TruckGate.Api.exe $((Get-Item $exe).VersionInfo.ProductVersion)"
 }
+Check 'FFmpeg for the passage video installed next to the server and runs (LGPL build)' {
+    $ff = Join-Path $app 'ffmpeg\ffmpeg.exe'
+    Assert ((Get-PeMachine $ff) -eq 'x64') 'ffmpeg.exe missing or not x64'
+    $v = (& $ff -hide_banner -version 2>&1 | Out-String)
+    Assert ($LASTEXITCODE -eq 0) "ffmpeg.exe does not run: $v"
+    Assert ($v -notmatch '--enable-gpl|--enable-nonfree') 'not an LGPL build'
+    Assert (Test-Path (Join-Path $app 'ffmpeg\ffprobe.exe')) 'ffprobe.exe missing'
+    ($v -split "`n")[0]
+}
 Check 'service TruckGateDB running as NetworkService, automatic' {
     $s = Get-CimInstance Win32_Service -Filter "Name='TruckGateDB'"
     Assert ($s.State -eq 'Running') "state $($s.State)"; Assert ($s.StartMode -eq 'Auto') "start $($s.StartMode)"

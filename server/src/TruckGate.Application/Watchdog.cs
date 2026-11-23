@@ -103,7 +103,7 @@ public sealed class Watchdog(Db db)
     }
 
     /// <summary>Inserts the alert unless one of this type was already raised for the subject in this period.</summary>
-    internal static async Task<bool> AlertOnceAsync(NpgsqlConnection conn, NpgsqlTransaction tx, string type, string severity,
+    public static async Task<bool> AlertOnceAsync(NpgsqlConnection conn, NpgsqlTransaction tx, string type, string severity,
         string entity, string entityId, string period, object parameters)
     {
         await conn.ExecuteAsync("SELECT pg_advisory_xact_lock(hashtextextended(@k, 0))",

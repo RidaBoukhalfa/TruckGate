@@ -18,6 +18,13 @@ export default function Login({ onLoggedIn }: { onLoggedIn: (u: User) => void })
 
   return (
     <form className="card login" onSubmit={submit}>
+      <div className="brand">
+        <div className="brand-mark">TG</div>
+        <div>
+          <div className="brand-name">TruckGate</div>
+          <div className="brand-sub">{t('appTagline')}</div>
+        </div>
+      </div>
       <h2>{t('login')}</h2>
       <label>{t('username')}<input autoFocus value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" /></label>
       <label>{t('secret')}<input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="current-password" /></label>

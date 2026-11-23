@@ -7,17 +7,20 @@ namespace TruckGate.Application.Cameras;
 public sealed record CameraInfo(
     int Id, string Label, int? GateId, string Role, bool CaptureOnScan, int Frames, int FrameIntervalMs, string Source,
     string? OnvifUrl, string? ProfileToken, string SnapshotUrl, string? Username, bool HasPassword, string? Manufacturer,
-    string? Model, int ConfigVersion, bool Active, DateTime? LastOkAt, string? LastError, DateTime? LastErrorAt);
+    string? Model, int ConfigVersion, bool Active, DateTime? LastOkAt, string? LastError, DateTime? LastErrorAt,
+    string? StreamUrl, bool RecordVideo, string? Location, string? RecorderStatus, string? RecorderError, DateTime? LastFrameAt,
+    int RecordingsOk24h, int RecordingsFailed24h);
 
 public sealed record CameraInput(
     string Label, int? GateId, string Role, bool CaptureOnScan, int Frames, int FrameIntervalMs, string Source,
     string? OnvifUrl, string? ProfileToken, string SnapshotUrl, string? Username, string? Password,
-    string? Manufacturer, string? Model, string? Serial);
+    string? Manufacturer, string? Model, string? Serial, string? StreamUrl = null, bool RecordVideo = false, string? Location = null);
 
 /// <summary>Null fields are left unchanged. An empty password removes it.</summary>
 public sealed record CameraUpdate(
     string? Label, int? GateId, bool ClearGate, string? Role, bool? CaptureOnScan, int? Frames, int? FrameIntervalMs,
-    string? SnapshotUrl, string? Username, string? Password, bool? Active);
+    string? SnapshotUrl, string? Username, string? Password, bool? Active, string? StreamUrl = null, bool ClearStream = false,
+    bool? RecordVideo = null, string? Location = null);
 
 public sealed record CapturedFrame(int CameraId, string Role, int ConfigVersion, int FrameIndex, DateTime CapturedAt, byte[] Jpeg);
 
@@ -84,7 +87,12 @@ public sealed class CameraService(Db db, SecretBox secrets, StorageOptions stora
                    c.profile_token AS profiletoken, c.snapshot_url AS snapshoturl, c.username,
                    c.password_enc IS NOT NULL AS haspassword, c.manufacturer, c.model,
                    c.config_version AS configversion, c.active, h.last_ok_at AS lastokat, h.last_error AS lasterror,
-                   h.last_error_at AS lasterrorat
+                   h.last_error_at AS lasterrorat, c.stream_url AS streamurl, c.record_video AS recordvideo, c.location,
+                   h.recorder_status AS recorderstatus, h.recorder_error AS recordererror, h.last_frame_at AS lastframeat,
+                   (SELECT count(*)::int FROM tg.video_recordings v WHERE v.camera_id = c.id AND v.status = 'OK'
+                    AND v.created_at > now() - interval '1 day') AS recordingsok24h,
+                   (SELECT count(*)::int FROM tg.video_recordings v WHERE v.camera_id = c.id AND v.status IN ('FAILED', 'PARTIAL')
+                    AND v.created_at > now() - interval '1 day') AS recordingsfailed24h
             FROM tg.cameras c LEFT JOIN tg.camera_health h ON h.camera_id = c.id
             ORDER BY c.id
             """)).ToList(), ct);
@@ -98,17 +106,23 @@ public sealed class CameraService(Db db, SecretBox secrets, StorageOptions stora
             throw TruckGateException.Validation("CAMERA_PROFILE", "ONVIF cameras need the device address and a profile.");
         ValidateUrl(c.SnapshotUrl);
         ValidateFrames(c.Frames, c.FrameIntervalMs);
+        var stream = ValidateStreamUrl(c.StreamUrl);
+        if (c.RecordVideo && stream is null)
+            throw TruckGateException.Validation("STREAM_URL_REQUIRED", "Video recording needs the RTSP address of the camera.");
         var enc = string.IsNullOrEmpty(c.Password) ? null : secrets.Encrypt(c.Password);
         return db.InTransactionAsync(actor, (conn, tx) => conn.ExecuteScalarAsync<int>("""
             INSERT INTO tg.cameras (label, gate_id, role, capture_on_scan, frames, frame_interval_ms, source, onvif_url,
-                                    profile_token, snapshot_url, username, password_enc, manufacturer, model, serial)
+                                    profile_token, snapshot_url, username, password_enc, manufacturer, model, serial,
+                                    stream_url, record_video, location)
             VALUES (@Label, @GateId, @Role, @CaptureOnScan, @Frames, @FrameIntervalMs, @Source, @OnvifUrl,
-                    @ProfileToken, @SnapshotUrl, @Username, @enc, @Manufacturer, @Model, @Serial)
+                    @ProfileToken, @SnapshotUrl, @Username, @enc, @Manufacturer, @Model, @Serial,
+                    @stream, @RecordVideo, @location)
             RETURNING id
             """, new
         {
             Label = c.Label.Trim(), c.GateId, c.Role, c.CaptureOnScan, c.Frames, c.FrameIntervalMs, c.Source, c.OnvifUrl,
             c.ProfileToken, c.SnapshotUrl, c.Username, enc, c.Manufacturer, c.Model, c.Serial,
+            stream, c.RecordVideo, location = string.IsNullOrWhiteSpace(c.Location) ? null : c.Location.Trim(),
         }, tx), ct);
     }
 
@@ -117,6 +131,7 @@ public sealed class CameraService(Db db, SecretBox secrets, StorageOptions stora
         if (u.Role is not null && !Roles.Contains(u.Role)) throw TruckGateException.Validation("CAMERA_ROLE", "Unknown role.");
         if (u.SnapshotUrl is not null) ValidateUrl(u.SnapshotUrl);
         if (u.Frames is not null || u.FrameIntervalMs is not null) ValidateFrames(u.Frames ?? 1, u.FrameIntervalMs ?? 0);
+        var stream = u.StreamUrl is null ? null : ValidateStreamUrl(u.StreamUrl);
         byte[]? enc = u.Password is { Length: > 0 } p ? secrets.Encrypt(p) : null;
         return db.InTransactionAsync(actor, async (conn, tx) =>
         {
@@ -131,12 +146,16 @@ public sealed class CameraService(Db db, SecretBox secrets, StorageOptions stora
                     snapshot_url = coalesce(@SnapshotUrl, snapshot_url),
                     username = coalesce(@Username, username),
                     password_enc = CASE WHEN @Password IS NULL THEN password_enc WHEN @Password = '' THEN NULL ELSE @enc END,
-                    active = coalesce(@Active, active)
+                    active = coalesce(@Active, active),
+                    stream_url = CASE WHEN @ClearStream THEN NULL ELSE coalesce(@stream, stream_url) END,
+                    record_video = CASE WHEN @ClearStream THEN false ELSE coalesce(@RecordVideo, record_video) END,
+                    location = coalesce(@location, location)
                 WHERE id = @id
                 """, new
             {
                 id, Label = u.Label?.Trim(), u.GateId, u.ClearGate, u.Role, u.CaptureOnScan, u.Frames, u.FrameIntervalMs,
-                u.SnapshotUrl, u.Username, u.Password, enc, u.Active,
+                u.SnapshotUrl, u.Username, u.Password, enc, u.Active, stream, u.ClearStream, u.RecordVideo,
+                location = string.IsNullOrWhiteSpace(u.Location) ? null : u.Location.Trim(),
             }, tx);
             if (n == 0) throw TruckGateException.NotFound("CAMERA_NOT_FOUND", $"Camera {id} does not exist.");
             return 0;
@@ -294,6 +313,18 @@ public sealed class CameraService(Db db, SecretBox secrets, StorageOptions stora
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme is not ("http" or "https"))
             throw TruckGateException.Validation("SNAPSHOT_URL", "The picture address must be http(s)://...");
+    }
+
+    /// <summary>RTSP (or HTTP) address without user and password: those come from the camera's own fields.</summary>
+    public static string? ValidateStreamUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var u) || u.Scheme is not ("rtsp" or "rtsps" or "http" or "https"))
+            throw TruckGateException.Validation("STREAM_URL", "The video address must be rtsp://...");
+        if (!string.IsNullOrEmpty(u.UserInfo))
+            throw TruckGateException.Validation("STREAM_URL_CREDENTIALS",
+                "Remove the user and password from the address: type them in the camera's user and password fields.");
+        return url.Trim();
     }
 
     private static void ValidateFrames(int frames, int intervalMs)

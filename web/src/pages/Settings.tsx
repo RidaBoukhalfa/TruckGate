@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { api, type ChannelStatus, type SettingItem } from '../api'
-import { useI18n } from '../i18n'
+import { api, type ChannelStatus, type Role, type SettingItem } from '../api'
+import { useI18n, type Key } from '../i18n'
 import { ErrorBox, Section, useAction } from '../ui'
 
 // Labels per setting key, Arabic then French.
@@ -48,7 +48,26 @@ const labels: Record<string, [string, string]> = {
   'alerts.whatsapp_min_severity': ['أدنى خطورة لإرسال WhatsApp', 'Gravité minimale pour WhatsApp'],
   'alerts.whatsapp_photos': ['إرفاق صورة (القالب يجب أن يحتوي رأس صورة)', 'Joindre la photo (modèle avec en-tête image)'],
   'alerts.whatsapp_api_version': ['نسخة Graph API', 'Version Graph API'],
+  'site.factory_name': ['اسم المصنع (يُطبع على وصل المقلع)', "Nom de l'usine (imprimé sur le bon de carrière)"],
+  'quarry.photo_required': ['فرض تصوير الحمولة (لا يصدر الوصل بدون صورة)', 'Photo du chargement obligatoire (pas de bon sans photo)'],
+  'quarry.sync_overdue_policy': ['بعد 24 ساعة بلا مزامنة: BLOCK يمنع إصدار وصلات جديدة، WARN تحذير فقط', 'Après 24 h sans synchro : BLOCK bloque les nouveaux bons, WARN avertit seulement'],
+  'video.pre_s': ['مدة الفيديو قبل مسح الوصل (ثانية)', 'Vidéo avant le scan (s)'],
+  'video.post_s': ['مدة الفيديو بعد مسح الوصل (ثانية)', 'Vidéo après le scan (s)'],
+  'video.segment_s': ['طول مقاطع التسجيل المستمر (ثانية)', "Durée des segments d'enregistrement (s)"],
+  'video.retention_days': ['مدة حفظ الفيديو (يوم)', 'Conservation des vidéos (jours)'],
+  'video.keep_reviewed': ['الاحتفاظ بفيديو الرحلات التي فيها مراجعة', 'Garder les vidéos des voyages vérifiés'],
+  'video.failure_opens_review': ['فشل تسجيل الفيديو يفتح مراجعة', "Un échec vidéo ouvre une vérification"],
+  'storage.min_free_gb': ['تنبيه إذا قلّت المساحة الحرة عن (GB)', 'Alerte si espace libre sous (Go)'],
+  'pay.require_exit_scan': ['الدفع فقط للرحلات التي سُجّل خروجها', 'Payer uniquement les voyages avec sortie enregistrée'],
 }
+
+const groupOf = (key: string): Key => {
+  const p = key.split('.')[0]
+  return p === 'quarry' ? 'sgQuarry' : p === 'gate' ? 'sgGate' : p === 'video' || p === 'storage' ? 'sgVideo'
+    : p === 'trip' || p === 'pay' ? 'sgFinance' : p === 'review' ? 'sgReview' : p === 'site' ? 'sgSite'
+      : p === 'auth' ? 'sgAuth' : 'sgAlerts'
+}
+const groupOrder: Key[] = ['sgQuarry', 'sgGate', 'sgVideo', 'sgFinance', 'sgReview', 'sgSite', 'sgAuth', 'sgAlerts']
 
 function toInput(s: SettingItem): string {
   try {
@@ -68,8 +87,12 @@ function fromInput(s: SettingItem, text: string): unknown {
   }
 }
 
-/** Administrator: business parameters and alert channels. Every change is recorded in the audit chain. */
-export default function SettingsPage() {
+/**
+ * Supervisor and administrator: operating parameters (quarry phones, gate, video, payment). Alert channels,
+ * sign-in rules and the time zone stay with the administrator. Every change is recorded in the audit chain.
+ */
+export default function SettingsPage({ role }: { role: Role }) {
+  const isAdmin = role === 'ADMIN'
   const { t, lang } = useI18n()
   const [items, setItems] = useState<SettingItem[]>([])
   const [edits, setEdits] = useState<Record<string, string>>({})
@@ -81,13 +104,13 @@ export default function SettingsPage() {
   const act = useAction()
 
   const load = async () => {
-    setItems(await api.get<SettingItem[]>('/api/admin/settings'))
-    setChannels(await api.get<ChannelStatus>('/api/admin/channels'))
+    setItems(await api.get<SettingItem[]>('/api/settings'))
+    if (isAdmin) setChannels(await api.get<ChannelStatus>('/api/admin/channels'))
   }
   useEffect(() => { act.run(load) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = (s: SettingItem) => act.run(async () => {
-    await api.put(`/api/admin/settings/${encodeURIComponent(s.key)}`, { value: fromInput(s, edits[s.key] ?? toInput(s)) })
+    await api.put(`/api/settings/${encodeURIComponent(s.key)}`, { value: fromInput(s, edits[s.key] ?? toInput(s)) })
     setEdits((e) => { const n = { ...e }; delete n[s.key]; return n })
     setNotice(t('saved'))
     await load()
@@ -103,17 +126,52 @@ export default function SettingsPage() {
     setNotice(r.errors.length ? r.errors.join(' · ') : t('testOk'))
   })
 
-  const groups = items.reduce<Record<string, SettingItem[]>>((g, s) => {
-    const k = s.key.split('.')[0]
-    ;(g[k] ??= []).push(s)
+  const groups = items.reduce<Partial<Record<Key, SettingItem[]>>>((g, s) => {
+    ;(g[groupOf(s.key)] ??= []).push(s)
     return g
   }, {})
 
   return (
     <div className="stack">
       <ErrorBox error={act.error} />
-      {notice && <div className="card ok" onClick={() => setNotice(null)}>{notice}</div>}
-      <Section title={t('alertChannels')}>
+      {notice && <div className="notice" onClick={() => setNotice(null)}>{notice}</div>}
+      {groupOrder.filter((g) => groups[g]?.length).map((g) => (
+        <Section key={g} title={t(g)}>
+          <table>
+            <tbody>
+              {groups[g]!.map((s) => {
+                const value = edits[s.key] ?? toInput(s)
+                const changed = edits[s.key] !== undefined && edits[s.key] !== toInput(s)
+                const locked = s.adminOnly && !isAdmin
+                return (
+                  <tr key={s.key} className={locked ? 'inactive' : ''}>
+                    <td>{labels[s.key]?.[lang === 'ar' ? 0 : 1] ?? s.key}<div className="muted small ltr">{s.key}</div></td>
+                    <td>
+                      {s.type === 'bool' ? (
+                        <select value={value} disabled={locked} onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })}>
+                          <option value="true">{t('yes')}</option><option value="false">{t('no')}</option>
+                        </select>
+                      ) : s.type === 'enum' ? (
+                        <select value={value} disabled={locked} onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })}>
+                          {(s.min ?? '').split(',').map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      ) : (
+                        <input value={value} disabled={locked} className={s.type === 'phones' || s.type === 'chats' || s.type === 'string' ? 'wide' : 'narrow-wide'}
+                          inputMode={s.type === 'int' || s.type === 'decimal' ? 'decimal' : undefined}
+                          onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })} />
+                      )}
+                      {(s.type === 'int' || s.type === 'decimal') && <span className="muted small"> <bdi>{s.min}–{s.max}</bdi></span>}
+                    </td>
+                    <td>{locked ? <span className="badge">{t('adminOnly')}</span>
+                      : <button className={changed ? 'primary' : ''} disabled={!changed || act.busy} onClick={() => save(s)}>{t('save')}</button>}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </Section>
+      ))}
+      {isAdmin && <Section title={t('alertChannels')}>
         {channels && (
           <ul className="small muted">
             <li>SMS: {channels.smsEnabled ? '✓' : '✗'} {channels.smsTransport === 'ZTE_ROUTER'
@@ -141,41 +199,7 @@ export default function SettingsPage() {
           <button disabled={!token} onClick={() => saveSecret('telegram.bot_token', token, () => setToken(''))}>{t('save')}</button>
           <button onClick={() => test('TELEGRAM')} disabled={act.busy}>{t('testTelegram')}</button>
         </div>
-      </Section>
-      {Object.entries(groups).map(([g, list]) => (
-        <Section key={g} title={g}>
-          <table>
-            <tbody>
-              {list.map((s) => {
-                const value = edits[s.key] ?? toInput(s)
-                const changed = edits[s.key] !== undefined && edits[s.key] !== toInput(s)
-                return (
-                  <tr key={s.key}>
-                    <td>{labels[s.key]?.[lang === 'ar' ? 0 : 1] ?? s.key}<div className="muted small ltr">{s.key}</div></td>
-                    <td>
-                      {s.type === 'bool' ? (
-                        <select value={value} onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })}>
-                          <option value="true">{t('yes')}</option><option value="false">{t('no')}</option>
-                        </select>
-                      ) : s.type === 'enum' ? (
-                        <select value={value} onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })}>
-                          {(s.min ?? '').split(',').map((o) => <option key={o} value={o}>{o}</option>)}
-                        </select>
-                      ) : (
-                        <input value={value} className={s.type === 'phones' || s.type === 'chats' ? 'wide' : ''}
-                          inputMode={s.type === 'int' || s.type === 'decimal' ? 'decimal' : undefined}
-                          onChange={(e) => setEdits({ ...edits, [s.key]: e.target.value })} />
-                      )}
-                      {(s.type === 'int' || s.type === 'decimal') && <span className="muted small"> {s.min}–{s.max}</span>}
-                    </td>
-                    <td><button className={changed ? 'primary' : ''} disabled={!changed || act.busy} onClick={() => save(s)}>{t('save')}</button></td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </Section>
-      ))}
+      </Section>}
     </div>
   )
 }

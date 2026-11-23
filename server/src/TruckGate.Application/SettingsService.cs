@@ -4,7 +4,7 @@ using TruckGate.Data;
 
 namespace TruckGate.Application;
 
-public sealed record SettingItem(string Key, string Value, string Type, string? Min, string? Max);
+public sealed record SettingItem(string Key, string Value, string Type, string? Min, string? Max, bool AdminOnly);
 
 /// <summary>Administrator-editable settings. Only known keys, each with its type and bounds; every change is audited.</summary>
 public sealed class SettingsService(Db db)
@@ -56,7 +56,22 @@ public sealed class SettingsService(Db db)
         ["alerts.whatsapp_min_severity"] = new("enum", Options: ["CRITICAL", "MEDIUM", "INFO"]),
         ["alerts.whatsapp_photos"] = new("bool"),
         ["alerts.whatsapp_api_version"] = new("string", 2, 8),
+        ["site.factory_name"] = new("string", 0, 80),
+        ["quarry.photo_required"] = new("bool"),
+        ["quarry.sync_overdue_policy"] = new("enum", Options: ["BLOCK", "WARN"]),
+        ["video.pre_s"] = new("int", 5, 120),
+        ["video.post_s"] = new("int", 5, 120),
+        ["video.segment_s"] = new("int", 1, 10),
+        ["video.retention_days"] = new("int", 1, 3650),
+        ["video.keep_reviewed"] = new("bool"),
+        ["video.failure_opens_review"] = new("bool"),
+        ["storage.min_free_gb"] = new("int", 1, 100_000),
+        ["pay.require_exit_scan"] = new("bool"),
     };
+
+    /// <summary>Alert channels, sign-in rules and the time zone stay with the administrator; the rest is for supervisors too.</summary>
+    public static bool IsAdminOnly(string key) =>
+        key.StartsWith("alerts.", StringComparison.Ordinal) || key.StartsWith("auth.", StringComparison.Ordinal) || key == "site.timezone";
 
     public Task<IReadOnlyList<SettingItem>> ListAsync(CancellationToken ct = default) =>
         db.ReadAsync<IReadOnlyList<SettingItem>>(async conn =>
@@ -65,13 +80,18 @@ public sealed class SettingsService(Db db)
                 .ToDictionary(r => r.Key, r => r.Value, StringComparer.Ordinal);
             return Rules.Select(r => new SettingItem(r.Key, values.GetValueOrDefault(r.Key, "null"), r.Value.Type,
                     r.Value.Options is null ? r.Value.Min.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Join(',', r.Value.Options),
-                    r.Value.Options is null ? r.Value.Max.ToString(System.Globalization.CultureInfo.InvariantCulture) : null))
+                    r.Value.Options is null ? r.Value.Max.ToString(System.Globalization.CultureInfo.InvariantCulture) : null,
+                    IsAdminOnly(r.Key)))
                 .OrderBy(s => s.Key, StringComparer.Ordinal).ToList();
         }, ct);
 
-    public Task SetAsync(string key, JsonElement value, Actor actor, CancellationToken ct = default)
+    public Task SetAsync(string key, JsonElement value, Actor actor, CancellationToken ct = default) =>
+        SetAsync(key, value, isAdmin: true, actor, ct);
+
+    public Task SetAsync(string key, JsonElement value, bool isAdmin, Actor actor, CancellationToken ct = default)
     {
         if (!Rules.TryGetValue(key, out var rule)) throw TruckGateException.Validation("SETTING_UNKNOWN", $"Unknown setting {key}.");
+        if (!isAdmin && IsAdminOnly(key)) throw TruckGateException.Forbidden("SETTING_ADMIN_ONLY", $"Only an administrator changes {key}.");
         var json = Validate(key, rule, value);
         return db.InTransactionAsync(actor, async (conn, tx) =>
         {

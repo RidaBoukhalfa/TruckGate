@@ -12,11 +12,19 @@ public sealed record SyncVoid(long At, string Reason, string Signature);
 
 public sealed record SyncTicket(string Raw, int PrintCount, string? DriverChangeReason, SyncVoid? Void);
 
-public sealed record SyncRequest(IReadOnlyList<SyncTicket> Tickets);
+/// <summary>Trucks registered on the phone travel with the tickets and are stored first.</summary>
+public sealed record SyncRequest(IReadOnlyList<SyncTicket> Tickets, IReadOnlyList<SyncTruck>? Trucks = null);
 
 public sealed record SyncTicketResult(string? TicketId, long? Seq, string Status, string? Error, bool PhotoWanted);
 
-public sealed record SyncResponse(long ServerTime, IReadOnlyList<SyncTicketResult> Results);
+public sealed record SyncResponse(long ServerTime, IReadOnlyList<SyncTicketResult> Results,
+    IReadOnlyList<SyncTruckResult>? Trucks = null);
+
+/// <summary>A ticket issued without a photo carries 32 zero bytes instead of the photo's SHA-256.</summary>
+public static class TicketPhoto
+{
+    public static bool IsNone(ReadOnlySpan<byte> sha256) => sha256.Length == 32 && !sha256.ContainsAnyExcept((byte)0);
+}
 
 /// <summary>
 /// Quarry phone upload (whenever the phone has a signal): tickets, print counts, voids and the photos
@@ -25,25 +33,41 @@ public sealed record SyncResponse(long ServerTime, IReadOnlyList<SyncTicketResul
 public sealed class SyncService(Db db, StorageOptions storage)
 {
     public const int MaxTicketsPerRequest = 200;
+    public const int MaxTrucksPerRequest = 50;
     public const int MaxPhotoBytes = 8 * 1024 * 1024;
     private static readonly Actor SyncActor = Actor.System("sync");
 
     public Task<SyncResponse> SyncAsync(int deviceId, SyncRequest request, CancellationToken ct = default)
     {
         var tickets = request.Tickets ?? [];
-        if (tickets.Count > MaxTicketsPerRequest)
+        var trucks = request.Trucks ?? [];
+        if (tickets.Count > MaxTicketsPerRequest || trucks.Count > MaxTrucksPerRequest)
             throw TruckGateException.Validation("SYNC_TOO_LARGE", $"At most {MaxTicketsPerRequest} tickets per request.");
 
         return db.InTransactionAsync(SyncActor, async (conn, tx) =>
         {
             var ticketKey = await conn.QuerySingleAsync<byte[]>(
                 "SELECT public_key_spki FROM tg.devices WHERE id = @deviceId", new { deviceId }, tx);
+            // trucks first: the tickets of this request may carry their numbers
+            var truckResults = new List<SyncTruckResult>();
+            foreach (var t in trucks.OrderBy(t => t.Id))
+                truckResults.Add(await FleetService.RegisterFromPhoneAsync(conn, tx, deviceId, t));
             var results = new List<SyncTicketResult>();
             foreach (var t in tickets)
                 results.Add(await SyncOneAsync(conn, tx, deviceId, ticketKey, t));
             await conn.ExecuteAsync("UPDATE tg.devices SET last_sync_at = now() WHERE id = @deviceId", new { deviceId }, tx);
+            var errors = results.Where(r => r.Error is not null).Select(r => $"{r.TicketId}:{r.Error}")
+                .Concat(truckResults.Where(r => r.Error is not null).Select(r => $"truck {r.Id}:{r.Error}")).Take(50).ToArray();
+            await conn.ExecuteAsync("""
+                INSERT INTO tg.sync_runs (device_id, tickets, accepted, rejected, new_trucks, errors)
+                VALUES (@deviceId, @n, @ok, @bad, @trucks, @errors)
+                """, new
+            {
+                deviceId, n = results.Count, ok = results.Count(r => r.Status == "OK"), bad = results.Count(r => r.Status != "OK"),
+                trucks = truckResults.Count(r => r.Status == "OK"), errors,
+            }, tx);
             var now = await conn.ExecuteScalarAsync<long>("SELECT extract(epoch FROM now())::bigint", transaction: tx);
-            return new SyncResponse(now, results);
+            return new SyncResponse(now, results, truckResults);
         }, ct);
     }
 
@@ -124,7 +148,8 @@ public sealed class SyncService(Db db, StorageOptions storage)
             }
         }
 
-        var photoWanted = !await conn.ExecuteScalarAsync<bool>(
+        // 32 zero bytes: the ticket was issued without a photo (allowed when the photo is optional)
+        var photoWanted = !TicketPhoto.IsNone(f.PhotoSha256) && !await conn.ExecuteScalarAsync<bool>(
             "SELECT EXISTS (SELECT 1 FROM tg.ticket_photos WHERE device_id = @deviceId AND seq = @seq)", new { deviceId, seq }, tx);
         return new SyncTicketResult(id, seq, "OK", null, photoWanted);
     }

@@ -10,7 +10,7 @@ namespace TruckGate.Application.Cameras;
 
 public sealed record DiscoveredDevice(string EndpointId, IReadOnlyList<string> XAddrs, string? Name, string? Hardware, string FromIp);
 
-public sealed record OnvifProfile(string Token, string Name, int? Width, int? Height, string? SnapshotUri);
+public sealed record OnvifProfile(string Token, string Name, int? Width, int? Height, string? SnapshotUri, string? StreamUri = null);
 
 public sealed record OnvifDeviceInfo(string? Manufacturer, string? Model, string? Firmware, string? Serial,
     IReadOnlyList<OnvifProfile> Profiles);
@@ -170,7 +170,19 @@ public sealed class OnvifClient(HttpClient http, string? username, string? passw
             {
                 // profile without snapshot support: listed, but cannot be used for capture
             }
-            profiles.Add(new OnvifProfile(token, name, w, h, snapshot));
+            string? stream = null;
+            try
+            {
+                var uri = await CallAsync(mediaUrl,
+                    $"""<GetStreamUri xmlns="{MediaNs}"><StreamSetup><Stream xmlns="http://www.onvif.org/ver10/schema">RTP-Unicast</Stream><Transport xmlns="http://www.onvif.org/ver10/schema"><Protocol>RTSP</Protocol></Transport></StreamSetup><ProfileToken>{System.Security.SecurityElement.Escape(token)}</ProfileToken></GetStreamUri>""", ct);
+                stream = ParseSnapshotUri(uri);
+                if (stream is not null) stream = RebaseToReachableHost(stream, deviceUrl);
+            }
+            catch (OnvifException)
+            {
+                // no RTSP stream for this profile: pictures only, no event video
+            }
+            profiles.Add(new OnvifProfile(token, name, w, h, snapshot, stream));
         }
         return new OnvifDeviceInfo(Field("Manufacturer"), Field("Model"), Field("FirmwareVersion"), Field("SerialNumber"), profiles);
     }

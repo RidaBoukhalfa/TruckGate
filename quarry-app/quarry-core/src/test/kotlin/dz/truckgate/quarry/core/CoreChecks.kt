@@ -18,7 +18,7 @@ class CoreChecks {
     }
 
     fun runAll(): CoreChecks {
-        geofence(); issuance(); escPos(); enrollment(); pin(); signedConfig(); serverAddress()
+        geofence(); issuance(); escPos(); enrollment(); pin(); signedConfig(); serverAddress(); trucks()
         return this
     }
 
@@ -203,6 +203,25 @@ class CoreChecks {
         check("pin/wrong", !PinHash.verify("4822", h))
         check("pin/bad-format", !PinHash.verify("4821", "plain$4821"))
         check("pin/too-few-iterations-refused", !PinHash.verify("4821", PinHash.hash("4821", ByteArray(16), 10_000).replace("$10000$", "$10$")))
+    }
+
+    // ------------------------------------------------------------------ trucks registered on the phone
+
+    private fun trucks() {
+        check("plate/arabic-digits", PlateRules.normalize("٠٩٨٧٦-١١٢-٣١") == "09876 112 31") { "${PlateRules.normalize("٠٩٨٧٦-١١٢-٣١")}" }
+        check("plate/11-digits", PlateRules.normalize("12345611616") == "123456 116 16")
+        check("plate/short-kept", PlateRules.normalize("1234567") == "1234567")
+        check("plate/letters-refused", PlateRules.normalize("12AB34") == null)
+        check("plate/too-short", PlateRules.normalize("12345") == null)
+        check("plate/key-ignores-format", PlateRules.key("09876 112 31") == PlateRules.key("٠٩٨٧٦-١١٢-٣١"))
+        check("ids/first-free", ProvisionalIds.next(listOf(40000..40009), setOf(40000, 40001)) == 40002)
+        check("ids/next-block", ProvisionalIds.next(listOf(40010..40011, 40000..40001), setOf(40000, 40001)) == 40010)
+        check("ids/exhausted", ProvisionalIds.next(listOf(40000..40001), setOf(40000, 40001)) == null)
+        val ctx = IssuanceContext(phoneNowMs = 200_000_000L, fix = null, geofence = null, deviceRevoked = false, truckActive = true,
+            truckLastIssuedAt = null, lastIssuedAt = null, defaultDriverId = null, driverId = 1, lastSyncAt = 0, unsyncedCount = 0)
+        check("sync/overdue-blocks", IssuanceRules.decide(ctx, IssuanceParams()) is IssuanceDecision.Blocked)
+        check("sync/overdue-warns-only", IssuanceRules.decide(ctx, IssuanceParams(syncOverdueBlocks = false)) is IssuanceDecision.Allowed)
+        check("sync/overdue-hours", IssuanceRules.syncOverdueHours(200_000, 0, IssuanceParams()) == 55L)
     }
 
     private object EcdsaDer {

@@ -67,6 +67,20 @@ builder.Services.AddSingleton(_ => new StorageOptions(
     builder.Configuration["Storage:Root"] ?? Path.Combine(dataDir, "snapshots")));
 builder.Services.AddSingleton(sp => new CameraService(sp.GetRequiredService<Db>(), sp.GetRequiredService<SecretBox>(),
     sp.GetRequiredService<StorageOptions>()));
+// Event video: ffmpeg/ffprobe come with the Windows installer ({app}\ffmpeg, next to {app}\server); a path in
+// Video:FfmpegPath / Video:FfprobePath wins; otherwise "ffmpeg" / "ffprobe" from PATH (Linux, development).
+static string VideoTool(string? configured, string name)
+{
+    if (configured is { Length: > 0 }) return configured;
+    var bundled = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "ffmpeg",
+        OperatingSystem.IsWindows() ? name + ".exe" : name));
+    return File.Exists(bundled) ? bundled : name;
+}
+builder.Services.AddSingleton(sp => new VideoService(sp.GetRequiredService<Db>(), new VideoOptions(
+    VideoTool(builder.Configuration["Video:FfmpegPath"], "ffmpeg"),
+    VideoTool(builder.Configuration["Video:FfprobePath"], "ffprobe"),
+    builder.Configuration["Video:BufferDir"] ?? Path.Combine(dataDir, "video-buffer"),
+    sp.GetRequiredService<StorageOptions>().Root)));
 builder.Services.AddSingleton(_ => EnrollmentOptions.Default(
     builder.Configuration["Server:PublicUrl"] ?? throw new InvalidOperationException("Server:PublicUrl is required (the address phones use).")));
 builder.Services.AddSingleton<EnrollmentService>();
@@ -74,6 +88,8 @@ builder.Services.AddSingleton<ExitService>();
 builder.Services.AddSingleton<ReviewService>();
 builder.Services.AddSingleton<SyncService>();
 builder.Services.AddSingleton<ReportService>();
+builder.Services.AddSingleton<FleetService>();
+builder.Services.AddSingleton<ReceiptsService>();
 builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<Watchdog>();
 builder.Services.AddHttpClient("telegram", http => http.Timeout = TimeSpan.FromSeconds(20));
@@ -91,6 +107,7 @@ builder.Services.AddSingleton<AlertService>();
 if (builder.Configuration["Background:Disabled"] != "true")
 {
     builder.Services.AddHostedService<WatchdogHost>();
+    if (builder.Configuration["Video:Disabled"] != "true") builder.Services.AddHostedService<VideoRecorderHost>();
     builder.Services.AddHostedService<AlertDispatchHost>();
 }
 
@@ -139,7 +156,8 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(Policies.Alerts, p => p.RequireRole("SUPERVISOR", "ADMIN", "MANAGER"))
     .AddPolicy(Policies.Reports, p => p.RequireRole("SUPERVISOR", "ADMIN", "MANAGER", "ACCOUNTANT", "AUDITOR"))
     .AddPolicy(Policies.Pay, p => p.RequireRole("ACCOUNTANT", "ADMIN", "MANAGER"))
-    .AddPolicy(Policies.PayWrite, p => p.RequireRole("ACCOUNTANT", "ADMIN"));
+    .AddPolicy(Policies.PayWrite, p => p.RequireRole("ACCOUNTANT", "ADMIN"))
+    .AddPolicy(Policies.Supervise, p => p.RequireRole("SUPERVISOR", "ADMIN"));
 
 var app = builder.Build();
 
@@ -187,6 +205,7 @@ app.Use(async (ctx, next) =>
             ErrorKind.NotFound => StatusCodes.Status404NotFound,
             ErrorKind.Conflict => StatusCodes.Status409Conflict,
             ErrorKind.Unauthorized => StatusCodes.Status401Unauthorized,
+            ErrorKind.Forbidden => StatusCodes.Status403Forbidden,
             _ => StatusCodes.Status400BadRequest,
         };
         await ctx.Response.WriteAsJsonAsync(new { error = e.Code, message = e.Message });
@@ -245,6 +264,8 @@ app.MapExitEndpoints();
 app.MapReviewEndpoints();
 app.MapAlertEndpoints();
 app.MapReportEndpoints();
+app.MapFleetEndpoints();
+app.MapWorkflowEndpoints();
 app.MapFallbackToFile("index.html");
 
 await app.RunAsync();

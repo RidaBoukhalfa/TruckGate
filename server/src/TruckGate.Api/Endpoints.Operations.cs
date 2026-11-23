@@ -23,12 +23,12 @@ internal static partial class Endpoints
         gate.MapGet("/inside", async (ExitService svc, CancellationToken ct) => Results.Ok(await svc.InsideAsync(ct)));
 
         // Receipt lost: the gatekeeper picks the truck among the trucks inside (recorded as such).
-        gate.MapPost("/exit/manual", async (ManualExitRequest r, ExitService svc, CameraService cams, HttpContext ctx,
-            CancellationToken ct) =>
+        gate.MapPost("/exit/manual", async (ManualExitRequest r, ExitService svc, CameraService cams, VideoService video,
+            HttpContext ctx, CancellationToken ct) =>
         {
-            var (exit, pictures) = await WithPicturesAsync(cams, r.GateId,
+            var (exit, pictures, videos) = await WithPicturesAsync(cams, video, r.GateId,
                 () => svc.ScanManualAsync(r.GateId, r.TripId, ctx.UserId(), ctx.Actor(), ct), x => x.ScanId);
-            return Results.Ok(new ExitView("EXIT", exit, pictures));
+            return Results.Ok(new ExitView("EXIT", exit, pictures, videos));
         });
 
         gate.MapPost("/exit/scans/{scanId:long}/decision", async (long scanId, ExitDecisionRequest r, ExitService svc,
@@ -53,11 +53,11 @@ internal static partial class Endpoints
             await svc.LabelAsync(id, r.Type, r.Value, ctx.UserId(), ctx.Actor(), ct);
             return Results.NoContent();
         });
-        review.MapGet("/dataset", async (DateOnly from, DateOnly to, ReviewService svc, SettingsService settings,
+        review.MapGet("/dataset", async (DateOnly from, DateOnly to, bool? videos, ReviewService svc, SettingsService settings,
             HttpContext ctx, CancellationToken ct) =>
         {
             var tz = (await settings.ListAsync(ct)).FirstOrDefault(s => s.Key == "site.timezone")?.Value.Trim('"') ?? "Africa/Algiers";
-            var path = await svc.ExportDatasetAsync(from, to, tz, ct);
+            var path = await svc.ExportDatasetAsync(from, to, tz, videos ?? false, ct);
             var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None, 81920, FileOptions.DeleteOnClose);
             return Results.File(stream, "application/zip", $"truckgate-dataset-{from:yyyyMMdd}-{to:yyyyMMdd}.zip");
         });

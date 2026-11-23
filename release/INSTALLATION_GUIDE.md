@@ -1,4 +1,4 @@
-# TruckGate 1.0.0 — Installation guide
+# TruckGate 1.1.0 — Installation guide
 
 Two files:
 
@@ -7,7 +7,7 @@ Two files:
 | `TruckGate-Windows-Setup.exe` | The factory PC that will be the **server** (and usually also the gate station). Optionally other PCs as extra gate stations. |
 | `TruckGate-Quarry.apk` | Each quarry phone (Android 8.0 or newer). |
 
-**ملخص بالعربية:** ثبّت `TruckGate-Windows-Setup.exe` على حاسوب المصنع (الخادم) واختر «Server + gate station»، ثم أنشئ حساب المدير. ثبّت `TruckGate-Quarry.apk` على هاتف المقلع، واسمح بالكاميرا والموقع والبلوتوث، ثم امسح رمز التسجيل الذي تعرضه شاشة الإدارة (هواتف المقلع ← رمز تسجيل جديد). يجب أن يكون الهاتف على شبكة Wi‑Fi المصنع نفسها. إذا تغيّر عنوان الخادم: «Change server address» في قائمة ابدأ، ثم «رمز عنوان الخادم» لكل هاتف.
+**ملخص بالعربية:** ثبّت `TruckGate-Windows-Setup.exe` على حاسوب المصنع (الخادم) واختر «Server + gate station»، ثم أنشئ حساب المدير. ثبّت `TruckGate-Quarry.apk` على هاتف المقلع، واسمح بالكاميرا والموقع والبلوتوث، ثم امسح رمز التسجيل الذي تعرضه شاشة الإدارة (هواتف المقلع ← رمز تسجيل جديد). يجب أن يكون الهاتف على شبكة Wi‑Fi المصنع نفسها. إذا تغيّر عنوان الخادم: «Change server address» في قائمة ابدأ، ثم «رمز عنوان الخادم» لكل هاتف. فيديو المرور (30 ثانية قبل المسح و30 بعده) يحتاج كاميرات IP تعطي بث RTSP بصيغة H.264: أدخل عنوان البث الفرعي في صفحة الكاميرات وفعّل «تسجيل فيديو المرور» (التفاصيل في `docs/WORKFLOW.md`).
 
 ---
 
@@ -19,7 +19,7 @@ Two files:
 
 ## 1. Install the server (Windows)
 
-**Requirements:** Windows 10 version 1809 or newer, Windows 11, or Windows Server 2019/2022/2025 — **64-bit (x64)**. Administrator rights. About 1 GB for the program, plus space for the database and camera pictures (an SSD is recommended). 8 GB RAM recommended. No other software is needed: the installer contains the .NET runtime, PostgreSQL 16 and the Microsoft Visual C++ runtime.
+**Requirements:** Windows 10 version 1809 or newer, Windows 11, or Windows Server 2019/2022/2025 — **64-bit (x64)**. Administrator rights. About 1.2 GB for the program, plus space for the database, camera pictures and **passage videos** (about 7.5 MB per camera per passage at 1 Mbit/s; e.g. ~90 GB for 30 days at 100 trips/day with 2 cameras — see `docs/WORKFLOW.md` §5; a separate data disk or SSD is recommended). 8 GB RAM recommended. No other software is needed: the installer contains the .NET runtime, PostgreSQL 16, FFmpeg (LGPL, for the passage video) and the Microsoft Visual C++ runtime.
 
 1. Check the file (optional but recommended). In PowerShell:
    ```powershell
@@ -56,11 +56,11 @@ Exit code 0 = success; 10 = the server part failed (see `C:\ProgramData\TruckGat
 1. Start menu → **TruckGate Gate Station**. It opens TruckGate in Chrome (or Edge if Chrome is not installed) in its own window, with silent receipt printing.
 2. Sign in with the administrator account.
 3. In the tabs (administrator):
-   - **الكاميرات / Cameras**: **first create the gate** (code and name, e.g. `G1` / `Main gate`) — the gate page stays empty («اختر البوابة») until a gate exists. Then discover ONVIF cameras or enter snapshot URLs and assign them to the gate.
-   - **الشاحنات والسائقون / Fleet**: trucks (number, plate) and drivers.
+   - **الكاميرات / Cameras**: **first create the gate** (code and name, e.g. `G1` / `Main gate`) — the gate page stays empty («اختر البوابة») until a gate exists. Then discover ONVIF cameras or enter snapshot URLs and assign them to the gate. For the passage video enter each camera's **RTSP sub-stream** address (without user and password — those go in the camera fields), tick **تسجيل فيديو المرور / record video**, and check that the recorder column shows *يسجّل / recording*.
+   - **الشاحنات والسائقون / Trucks**: trucks (number, last name, first name, registration, price per trip) and drivers. Trucks added on the quarry phones appear under **الشاحنات بانتظار الاعتماد** for approval.
    - **المستخدمون / Users**: gatekeepers (PIN), quarry operators (PIN), supervisors, accountant.
    - **هواتف المقلع / Phones**: create the quarry site and draw its boundary (GPS points), then enroll the phones (section 4).
-   - **الإعدادات / Settings**: trip price (1400.00 DZD), WhatsApp and SMS alerts (see `docs/OPERATIONS.md`).
+   - **الإعدادات / Settings**: factory name (printed on the quarry receipt), default trip price (1400.00 DZD, proposed when approving a truck), cargo photo required or optional, policy after 24 h without sync, video duration and retention; WhatsApp and SMS alerts (administrator; see `docs/OPERATIONS.md`).
 4. **Receipt printer at the gate**: install the printer's Windows driver and make it the **Windows default printer**. The Gate Station shortcut prints receipts to the default printer without a dialog.
 5. **Barcode scanner**: USB scanner in keyboard mode, sending Enter after the code. Click in the scan field on the gate page.
 
@@ -111,9 +111,13 @@ If the server PC got a new IP address:
 | `/health` says `"database":"unreachable"` | Service **TruckGateDB** is stopped; start it. Its log: `C:\ProgramData\TruckGate\pgdata\log`. |
 | Receipts open a print dialog | Use the **TruckGate Gate Station** shortcut (it adds silent printing) and set the receipt printer as Windows default. |
 | Forgot the administrator password | Another administrator can reset it in Users. *Create administrator account* only works while no administrator exists. |
+| Cameras page: recorder *خطأ / error* or *last frame* not moving | Wrong RTSP address or camera user/password, camera unreachable, or H.265/unsupported stream. Test the address in VLC (Media → Open Network Stream) from the server PC. The error text is shown under the status; the address must not contain the password. |
+| Trip page: passage video *فشل التسجيل / failed* | The camera was not recording at scan time (see above), or the buffer was not full yet just after a restart (the first 30 s after the service starts cannot have "before" footage). An alert *RECORDING_FAILED* and a review are created; nothing is shown as recorded. |
+| Alert *STORAGE_LOW* | Free disk space under `storage.min_free_gb`: shorten `video.retention_days`, move old videos to another disk, or add a data disk. |
 
 ## 8. Upgrade, backup, uninstall
 
 - **Upgrade**: run the newer `TruckGate-Windows-Setup.exe` over the installed one. Services are stopped, files replaced, database migrated, services restarted. Data, keys, settings and passwords are kept.
-- **Backup**: automatic every night, or Start menu → *Back up now*. Copy `C:\ProgramData\TruckGate\backups` **and** `C:\ProgramData\TruckGate\data\snapshots` (camera pictures) to another disk regularly. A backup zip contains the server's private signing key and the database passwords: keep it as safely as the server itself.
+  - **From 1.0 to 1.1**: the database migration `V006` runs by itself. Existing trucks become *approved* with the current global price per trip as their own price (change it per truck afterwards, with a reason). Payment batches already recorded keep their global price. Quarry phones with app 1.0 keep working for existing trucks; install app 1.1.0 to register new trucks from the phone, then sync each phone once so it receives its reserved truck numbers.
+- **Backup**: automatic every night, or Start menu → *Back up now*. Copy `C:\ProgramData\TruckGate\backups` **and** `C:\ProgramData\TruckGate\data\snapshots` (camera pictures and, under `media\`, passage videos) to another disk regularly. `data\video-buffer` is a temporary rolling buffer and needs no backup. A backup zip contains the server's private signing key and the database passwords: keep it as safely as the server itself.
 - **Uninstall**: Windows Settings → Apps → TruckGate → Uninstall. Services, firewall rule and backup task are removed; the data in `C:\ProgramData\TruckGate` is **kept** unless you answer *Yes* to deleting it. Reinstalling later reuses the kept data.

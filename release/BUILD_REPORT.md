@@ -1,5 +1,17 @@
 # TruckGate — Build report (server/installer 1.0.0, quarry app 1.0.2)
 
+> **Version 1.1.0 — built and tested on 2026-11-23** (draft release `v1.1.0-build.17`, run 45262182609,
+> commit `545ff2c`). APK SHA-256 `dbd9b8630b0bbeae6c11141f8de58158e78722fffa261b892e2e0ec45fc69127`,
+> installer SHA-256 `c956e43f89c073c649f37b0404b22c3df66a44d6dbec3bf9edb2fc0cb647b69b`.
+> CI: spec vectors, Kotlin (core + Android app), web, server — 7/7 crypto and 107/107 server tests on
+> Linux, including the real 30 s + 30 s passage-video test. Release: APK unit tests and install/launch on
+> emulators API 26, 28, 29, 30 and 34; Windows installer install / login / upgrade / uninstall /
+> reinstall / station test all passed; 7/7 + 107/107 tests on Windows against the bundled PostgreSQL,
+> with the video test run on the **bundled LGPL FFmpeg 8.1.3**. Fixed on the way: an internal method
+> used across projects, office-created trucks rejected by the new approval constraint, the UI smoke
+> test following the new menu. Still not tested with real cameras, the receipt printer, a real phone
+> or SMS. The sections below describe the earlier 1.0 build.
+
 | | |
 |---|---|
 | Build date | 2026-11-22, finished 17:36 UTC |

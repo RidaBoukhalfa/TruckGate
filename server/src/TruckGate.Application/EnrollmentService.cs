@@ -145,12 +145,14 @@ public sealed class EnrollmentService(Db db, ServerSigningKey serverKey, Enrollm
             var site = await conn.QuerySingleOrDefaultAsync<SiteRow>(
                 "SELECT id::int AS id, name, geofence::text AS geofence FROM tg.sites WHERE kind = 'QUARRY' ORDER BY id LIMIT 1",
                 transaction: tx);
+            // rejected and merged trucks disappear from the phones; provisional ones stay usable
             var trucks = (await conn.QueryAsync<TruckRow>("""
-                SELECT t.id, t.fleet_number, t.default_driver_id, t.active,
+                SELECT t.id, t.fleet_number, t.default_driver_id, t.active, t.approval_status,
                        (SELECT p.plate_text FROM tg.truck_plates p
                         WHERE p.truck_id = t.id AND p.valid_to IS NULL ORDER BY p.valid_from DESC LIMIT 1) AS plate
-                FROM tg.trucks t ORDER BY t.id
+                FROM tg.trucks t WHERE t.approval_status IN ('APPROVED', 'PENDING_APPROVAL') ORDER BY t.id
                 """, transaction: tx)).ToList();
+            var idBlocks = await FleetService.EnsureIdBlocksAsync(conn, tx, deviceId);
             var drivers = (await conn.QueryAsync<NameRow>(
                 "SELECT id, full_name AS name FROM tg.drivers WHERE active ORDER BY id", transaction: tx)).ToList();
             var operators = (await conn.QueryAsync<OperatorRow>("""
@@ -161,6 +163,7 @@ public sealed class EnrollmentService(Db db, ServerSigningKey serverKey, Enrollm
                     "SELECT key, value::text FROM tg.settings WHERE key LIKE 'quarry.%'", transaction: tx))
                 .ToDictionary(r => r.Key, r => r.Value, StringComparer.Ordinal);
             string S(string key, string fallback) => settings.TryGetValue(key, out var v) ? v : fallback;
+            var bag = await SettingsBag.LoadAsync(conn, tx);
 
             var content = new
             {
@@ -170,10 +173,14 @@ public sealed class EnrollmentService(Db db, ServerSigningKey serverKey, Enrollm
                     name = site.Name,
                     geofence = string.IsNullOrEmpty(site.Geofence) ? null : JsonSerializer.Deserialize<int[][]>(site.Geofence),
                 },
+                factoryName = bag.String("site.factory_name", ""),
                 trucks = trucks.Select(t => new
                 {
                     id = t.Id, fleetNumber = t.FleetNumber, plate = t.Plate, defaultDriverId = t.DefaultDriverId, active = t.Active,
+                    status = t.ApprovalStatus,
                 }),
+                // numbers this phone may give to a truck it registers while offline
+                truckIdBlocks = idBlocks,
                 drivers = drivers.Select(d => new { id = d.Id, name = d.Name }),
                 operators = operators.Select(o => new { id = o.Id, name = o.Name, pinHash = o.PinHash }),
                 @params = new
@@ -184,6 +191,8 @@ public sealed class EnrollmentService(Db db, ServerSigningKey serverKey, Enrollm
                     gpsMaxAgeS = int.Parse(S("quarry.gps_max_age_s", "120")),
                     gpsMaxAccuracyM = int.Parse(S("quarry.gps_max_accuracy_m", "150")),
                     maxUnsyncedTickets = int.Parse(S("quarry.max_unsynced_tickets", "500")),
+                    photoRequired = bag.Bool("quarry.photo_required", true),
+                    syncOverduePolicy = bag.String("quarry.sync_overdue_policy", "BLOCK"),
                 },
             };
             var contentJson = JsonSerializer.Serialize(content);
@@ -254,6 +263,7 @@ public sealed class EnrollmentService(Db db, ServerSigningKey serverKey, Enrollm
         public string FleetNumber { get; set; } = "";
         public int? DefaultDriverId { get; set; }
         public bool Active { get; set; }
+        public string ApprovalStatus { get; set; } = "";
         public string? Plate { get; set; }
     }
 

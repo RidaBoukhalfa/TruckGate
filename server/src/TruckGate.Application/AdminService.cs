@@ -182,13 +182,19 @@ public sealed class AdminService(Db db)
         Actor actor, CancellationToken ct = default)
     {
         if (id is < 1 or > 65535) throw TruckGateException.Validation("TRUCK_ID_RANGE", "Truck id must be 1..65535.");
+        if (ProvisionalTruckIds.Contains(id))
+            throw TruckGateException.Validation("TRUCK_ID_RESERVED", "Numbers from 40000 are reserved for the quarry phones.");
         if (string.IsNullOrWhiteSpace(fleetNumber))
             throw TruckGateException.Validation("FLEET_NUMBER_REQUIRED", "Fleet number is required.");
         return Guard(db.InTransactionAsync(actor, async (conn, tx) =>
         {
+            // Created at the office = approved at once, at the current default price (changed per truck later).
             await conn.ExecuteAsync("""
-                INSERT INTO tg.trucks (id, fleet_number, model, default_driver_id)
-                VALUES (@id, @fleetNumber, @model, @defaultDriverId)
+                INSERT INTO tg.trucks (id, fleet_number, model, default_driver_id, approval_status, decided_at)
+                VALUES (@id, @fleetNumber, @model, @defaultDriverId, 'APPROVED', now());
+                INSERT INTO tg.truck_prices (truck_id, price, reason)
+                SELECT @id, (s.value #>> '{}')::numeric, 'DEFAULT_PRICE'
+                FROM tg.settings s WHERE s.key = 'trip.price_per_trip' AND (s.value #>> '{}')::numeric > 0;
                 """, new { id, fleetNumber = fleetNumber.Trim(), model, defaultDriverId }, tx);
             if (!string.IsNullOrWhiteSpace(plateText))
                 await conn.ExecuteAsync("INSERT INTO tg.truck_plates (truck_id, plate_text) VALUES (@id, @plate)",
