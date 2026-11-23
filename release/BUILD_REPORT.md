@@ -1,16 +1,16 @@
 # TruckGate — Build report (server/installer 1.0.0, quarry app 1.0.2)
 
-> **Version 1.1.0 (branch `step-7-workflow-v1.1`, pull request #7): source ready, not built yet.**
-> GitHub Actions refuses to start any job on this repository ("recent account payments have failed or
-> your spending limit needs to be increased"), so neither CI nor the release workflow has run for 1.1.0.
-> The binaries described below are still the **1.0** files. Checks done outside CI on 2026-11-23:
-> server and test code compiled against reference stubs (no errors; the tests were **not executed**);
-> the new SQL (migration V006, export queries) run on PostgreSQL 16; web interface `tsc` + `vite build`
-> passed and the main screens were rendered in Chrome against canned API answers (visual check only);
-> phone core (`quarry-core` + `ticket-format`, compiled with Kotlin 2.1.21 instead of the project's
-> 2.0.21): 66 core checks and 207 shared ticket vectors pass; the Android app module was **not compiled**
-> (no Android SDK here). Nothing was tested with real cameras, the receipt printer, a phone or SMS.
-> This report will be replaced by the 1.1.0 build report once the workflow runs.
+> **Version 1.1.0 — built and tested on 2026-11-23** (draft release `v1.1.0-build.17`, run 45262182609,
+> commit `545ff2c`). APK SHA-256 `dbd9b8630b0bbeae6c11141f8de58158e78722fffa261b892e2e0ec45fc69127`,
+> installer SHA-256 `c956e43f89c073c649f37b0404b22c3df66a44d6dbec3bf9edb2fc0cb647b69b`.
+> CI: spec vectors, Kotlin (core + Android app), web, server — 7/7 crypto and 107/107 server tests on
+> Linux, including the real 30 s + 30 s passage-video test. Release: APK unit tests and install/launch on
+> emulators API 26, 28, 29, 30 and 34; Windows installer install / login / upgrade / uninstall /
+> reinstall / station test all passed; 7/7 + 107/107 tests on Windows against the bundled PostgreSQL,
+> with the video test run on the **bundled LGPL FFmpeg 8.1.3**. Fixed on the way: an internal method
+> used across projects, office-created trucks rejected by the new approval constraint, the UI smoke
+> test following the new menu. Still not tested with real cameras, the receipt printer, a real phone
+> or SMS. The sections below describe the earlier 1.0 build.
 
 | | |
 |---|---|
