@@ -1,5 +1,17 @@
 # TruckGate — Build report (server/installer 1.0.0, quarry app 1.0.2)
 
+> **Version 1.1.0 (branch `step-7-workflow-v1.1`, pull request #7): source ready, not built yet.**
+> GitHub Actions refuses to start any job on this repository ("recent account payments have failed or
+> your spending limit needs to be increased"), so neither CI nor the release workflow has run for 1.1.0.
+> The binaries described below are still the **1.0** files. Checks done outside CI on 2026-11-23:
+> server and test code compiled against reference stubs (no errors; the tests were **not executed**);
+> the new SQL (migration V006, export queries) run on PostgreSQL 16; web interface `tsc` + `vite build`
+> passed and the main screens were rendered in Chrome against canned API answers (visual check only);
+> phone core (`quarry-core` + `ticket-format`, compiled with Kotlin 2.1.21 instead of the project's
+> 2.0.21): 66 core checks and 207 shared ticket vectors pass; the Android app module was **not compiled**
+> (no Android SDK here). Nothing was tested with real cameras, the receipt printer, a phone or SMS.
+> This report will be replaced by the 1.1.0 build report once the workflow runs.
+
 | | |
 |---|---|
 | Build date | 2026-11-22, finished 17:36 UTC |
