@@ -4,7 +4,8 @@
     "quarry-1": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
     "quarry-2": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA==",
     "gate-1": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERTkgFOZqjLxrCyu6+Bu51Z1KGSl6S2DRDCMjowZbUX5T/0laXfMkxUu1EmQGWEAJP8peRStvbqae2VeB8zDNlQ==",
-    "attacker": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEv85R+ukP99H3p9ZObfeG0IkW+nsjAXcn/g/l9m3yHOQ2sYO+IV25HpCU8CS5i19NvOx7CQ+GpA63OFckebmtAw=="
+    "attacker": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEv85R+ukP99H3p9ZObfeG0IkW+nsjAXcn/g/l9m3yHOQ2sYO+IV25HpCU8CS5i19NvOx7CQ+GpA63OFckebmtAw==",
+    "server-1": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEoDoWRO1ZQ2/tHw9Fv/b2EZcBeba4DJ6JQsk4YRqPtxdQ2YUPxxKpy1oHxzs1zAvYQq5Rsi9oIWFKd0DgJZukDw=="
   },
   "cases": [
     {

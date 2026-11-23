@@ -86,3 +86,43 @@ labeled frames kept permanently; trip evidence kept per accounting rules.
 | Rejected scans | Also photographed and kept |
 | Logins | Gatekeepers and quarry operators: PIN; other roles: password of 10+ characters; lockout after 5 failures for 5 min; quarry operators cannot use the web UI |
 | Camera passwords | AES-256-GCM, key file outside the database, never in the audit log or API responses |
+
+## Exit, review, alerts, sync, payment (steps 5–6)
+| Topic | Decision |
+|---|---|
+| Gate receipt | Printed at entry from the browser on any installed printer; QR `TR1:` signed by the server key (85 bytes, spec §9); scanned in the same box as tickets |
+| Lost receipt | Exit chosen from the list of trucks inside, recorded `MANUAL_SELECT` / `RECEIPT_MISSING` |
+| Exit checks | Receipt forged → critical alert; reused → critical alert; exit < 3 min after entry or loaded exit → review |
+| Closing | Exit empty with no open review → trip `CLOSED` (payable) at once |
+| Truck never out | After 2 h → review `NO_EXIT_SCAN` + alert; supervisor acceptance closes it |
+| Damaged QR | Ticket number + short code, only against the synced copy, always PENDING (spec §5) |
+| Review | One decision per trip closes all its open reviews; reject needs a reason; decisions are final |
+| Random sample | 5 % of yesterday's accepted trips, at least one, every night |
+| AI labels | Per picture: load, plate text, quality; latest wins, history kept; zip export with labels.jsonl |
+| Alerts | WhatsApp through Meta's official Cloud API (approved utility template `truckgate_alert`, optional picture); SMS through the ZTE router's web interface or a USB GSM modem (works offline, UCS-2 Arabic, ≤ 10/h, critical by default); Telegram bot; unofficial WhatsApp Web tools refused (ban risk); 5 attempts per channel; every attempt logged |
+| Watchdog | Every minute: undecided entries, trucks never out, phones not synced 24 h, nightly sample; partial-load counters per driver and operator at decision time |
+| Phone sync | WorkManager whenever a network exists (≥ every 15 min) and right after each ticket; tickets, print counts and signed voids; photos only on Wi-Fi; requests signed with the auth key and time-stamped with the server clock |
+| Server checks on sync | Ticket signature with the phone's key, same number with different content → critical alert, void signature, photo SHA-256 equals the hash inside the ticket |
+| Payment | Statement per driver of `CLOSED` trips by entry date; CSV for Excel; recording a payment moves trips to `PAID` for good and keeps the batch |
+| Settings | Only known keys with bounds; quarry parameters reach phones in the signed configuration |
+
+## Site values given (factory pilot)
+| Item | Value |
+|---|---|
+| Price per trip | 1400.00 DZD (set in *Settings* → `trip.price_per_trip`) |
+| Factory internet | Yes — WhatsApp is the main alert channel |
+| Router / modem | ZTE **G5C** — SMS through its web interface (G5-series JSON-RPC, goform as fallback), to be confirmed with the Test button |
+
+Router protocols were implemented from public descriptions of the routers' web interfaces; no third-party
+source code is included in TruckGate.
+
+## Oldest supported Android: 8.0 (API 26) — 2026-11-22
+
+The first field phone runs an Android version older than 11, so the minimum went from Android 11 to
+Android 8.0. The ticket key keeps the same rule on every version: a fingerprint for every signature
+(Android 11+: `setUserAuthenticationParameters(0, BIOMETRIC_STRONG)`; Android 8–10: validity −1,
+which only a fingerprint through BiometricPrompt can unlock — the screen PIN cannot). Differences on
+older phones: StrongBox only from Android 9 and only on some phones; some older phones cannot produce
+a key attestation certificate — the key is then still created in Android Keystore and the server
+stores the attestation as missing. Android 8.0 is the floor because the app uses java.time and
+java.util.Base64 (API 26). Emulator tests run on Android 8.0, 9, 10, 11 and 14.

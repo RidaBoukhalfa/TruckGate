@@ -1,0 +1,48 @@
+{
+  "description": "Void record: TGVOID1|ticket id|unix s|reason (trimmed, UTF-8), signed by the ticket key",
+  "public_keys_spki_b64": {
+    "quarry-1": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdwo4Uk5MwnUrcXZQnyZlS6mmukpVxqZ8X/FT/8I1ZCwv7O/fINyR6kS1KUIGFt5fQ9yzwq2yo2Esdekv+SVdmw==",
+    "quarry-2": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETKKNembUtjboRtzd+scGPGQ8ButEfq7CHURdmC9MKSp2EyvwFHDQoLxRivI8FmGL9hosOMR7y0eeUBNdEgoScA=="
+  },
+  "cases": [
+    {
+      "name": "latin",
+      "ticket_id": "Q1-000482",
+      "at": 1795327500,
+      "reason": "printer jam",
+      "message_hex": "5447564f4944317c51312d3030303438327c313739353332373530307c7072696e746572206a616d",
+      "signature_hex": "4fccec6f628d77631ee6be3d7707b2ebfb039ed9c27f281906ad56186b4409d7097b0ce2e09d0238943f528382afadb628d3042f2a3cc29ffdec1b67ad8ba1c2",
+      "signer": "quarry-1",
+      "valid_for": {
+        "quarry-1": true,
+        "quarry-2": false
+      }
+    },
+    {
+      "name": "arabic",
+      "ticket_id": "Q1-000483",
+      "at": 1795328100,
+      "reason": "الشاحنة تعطلت",
+      "message_hex": "5447564f4944317c51312d3030303438337c313739353332383130307cd8a7d984d8b4d8a7d8add986d8a920d8aad8b9d8b7d984d8aa",
+      "signature_hex": "d1ad667c1ac86aa35165aa4fa7525debce829b82429499fa0275bb6ebd8ca9e80530eb90f7bde681ad9d6677281ae7955a8b1324602e47cbb82a544187f55bdf",
+      "signer": "quarry-1",
+      "valid_for": {
+        "quarry-1": true,
+        "quarry-2": false
+      }
+    },
+    {
+      "name": "trimmed",
+      "ticket_id": "Q2-000001",
+      "at": 1795327260,
+      "reason": "  wrong truck  ",
+      "message_hex": "5447564f4944317c51322d3030303030317c313739353332373236307c77726f6e6720747275636b",
+      "signature_hex": "d0130d6db17069a96591f638e289a338b3bf4930156904dc014da07d62525b24ebf24c8907b8e8edaab2d22472cb257790b1458fba0fbaab5f79e9126af6d6e2",
+      "signer": "quarry-1",
+      "valid_for": {
+        "quarry-1": true,
+        "quarry-2": false
+      }
+    }
+  ]
+}

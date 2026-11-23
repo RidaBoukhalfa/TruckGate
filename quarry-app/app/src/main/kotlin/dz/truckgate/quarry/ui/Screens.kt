@@ -3,6 +3,8 @@
 package dz.truckgate.quarry.ui
 
 import androidx.activity.compose.BackHandler
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +47,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.asImageBitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -172,7 +180,7 @@ private fun LoginScreen(vm: QuarryViewModel) {
         Title(stringResource(R.string.login_title))
         if (cfg == null || cfg.operators.isEmpty()) {
             Text(stringResource(R.string.config_missing), fontSize = 18.sp)
-            SecondaryButton(stringResource(R.string.config_refresh), vm::refreshConfig)
+            SecondaryButton(stringResource(R.string.sync_now), vm::syncNow)
             return@Page
         }
         val op = chosen
@@ -209,14 +217,19 @@ private fun HomeScreen(vm: QuarryViewModel) {
             StatusDot(vm.printerAddress != null, stringResource(R.string.status_printer))
             StatusDot(fix != null && fix.ageMs < 120_000, stringResource(R.string.gps_ok))
             StatusDot(cfg != null, stringResource(R.string.status_config, cfg?.version ?: 0))
+            StatusDot(vm.unsynced == 0 && vm.syncError == null, stringResource(R.string.status_sync, vm.unsynced))
         }
+        Text(stringResource(R.string.last_sync, vm.lastSyncAt?.let {
+            java.time.format.DateTimeFormatter.ofPattern("dd/MM HH:mm").withZone(java.time.ZoneId.systemDefault())
+                .format(java.time.Instant.ofEpochSecond(it))
+        } ?: "—"), fontSize = 14.sp)
         Spacer(Modifier.height(12.dp))
         BigButton(stringResource(R.string.home_new_ticket), vm::startTicket, enabled = cfg != null)
         Text(stringResource(R.string.home_today, vm.todayCount), fontSize = 18.sp)
         vm.tickets.firstOrNull()?.let { Text(stringResource(R.string.home_last, it.ticketId), fontSize = 16.sp) }
         Spacer(Modifier.weight(1f))
         SecondaryButton(stringResource(R.string.home_history), { vm.go(Screen.History) })
-        SecondaryButton(stringResource(R.string.config_refresh), vm::refreshConfig)
+        SecondaryButton(stringResource(R.string.sync_now), vm::syncNow)
         SecondaryButton(stringResource(R.string.home_settings), { vm.go(Screen.Settings) })
         SecondaryButton(stringResource(R.string.home_logout), vm::logout)
     }
@@ -363,6 +376,18 @@ private fun TicketRow(vm: QuarryViewModel, t: StoredTicket) {
 }
 
 @Composable
+private fun TicketQr(text: String) {
+    val image = remember(text) {
+        val m = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0,
+            mapOf(EncodeHintType.MARGIN to 2, EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M))
+        val pixels = IntArray(m.width * m.height) { i -> if (m.get(i % m.width, i / m.width)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt() }
+        Bitmap.createBitmap(pixels, m.width, m.height, Bitmap.Config.ARGB_8888).asImageBitmap()
+    }
+    Image(image, contentDescription = null, filterQuality = FilterQuality.None,
+        modifier = Modifier.size(180.dp).background(Color.White))
+}
+
+@Composable
 private fun TicketDetailScreen(vm: QuarryViewModel, activity: FragmentActivity) {
     val t = vm.selected ?: return
     var reason by remember { mutableStateOf("") }
@@ -374,6 +399,10 @@ private fun TicketDetailScreen(vm: QuarryViewModel, activity: FragmentActivity) 
         if (t.voidedAt != null) {
             Text(stringResource(R.string.voided) + ": " + t.voidReason.orEmpty(), color = Color(0xFFC62828), fontSize = 20.sp)
         } else {
+            // Same code as on the paper: the gate scanner can read it from this screen if the
+            // printer is broken. A ticket is still accepted only once at the gate.
+            TicketQr(t.qrText)
+            Text(stringResource(R.string.ticket_qr_screen), fontSize = 14.sp)
             BigButton(stringResource(if (t.printCount == 0) R.string.retry else R.string.reprint), { vm.printStored(t.seq) })
             HorizontalDivider()
             OutlinedTextField(value = reason, onValueChange = { reason = it.take(120) },
@@ -390,10 +419,19 @@ private fun TicketDetailScreen(vm: QuarryViewModel, activity: FragmentActivity) 
 
 @Composable
 private fun SettingsScreen(vm: QuarryViewModel) {
-    BackHandler { vm.go(Screen.Home) }
     val printers = remember { vm.pairedPrinters() }
     var chosen by remember { mutableStateOf(vm.printerAddress) }
     var paper by remember { mutableStateOf(vm.paper) }
+    var scanningAddress by remember { mutableStateOf(false) }
+    if (scanningAddress) {
+        BackHandler { scanningAddress = false }
+        QrScanner(Modifier.fillMaxSize()) { text ->
+            scanningAddress = false
+            vm.changeServerAddress(text)
+        }
+        return
+    }
+    BackHandler { vm.go(Screen.Home) }
     Page {
         Title(stringResource(R.string.settings_title))
         Text(stringResource(R.string.device_info, vm.deviceId ?: 0, vm.serverUrl.orEmpty()), fontSize = 14.sp)
@@ -414,7 +452,9 @@ private fun SettingsScreen(vm: QuarryViewModel) {
                 label = { Text(stringResource(R.string.paper_80)) })
         }
         SecondaryButton(stringResource(R.string.test_print), vm::testPrint, enabled = chosen != null)
-        SecondaryButton(stringResource(R.string.config_refresh), vm::refreshConfig)
+        SecondaryButton(stringResource(R.string.sync_now), vm::syncNow)
+        SecondaryButton(stringResource(R.string.test_connection), vm::testConnection)
+        SecondaryButton(stringResource(R.string.change_server_address), { scanningAddress = true })
         SecondaryButton(stringResource(R.string.back), { vm.go(Screen.Home) })
     }
 }

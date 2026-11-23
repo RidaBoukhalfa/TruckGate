@@ -79,4 +79,41 @@
     <string name="gps_none">بلا GPS</string>
     <string name="no_printer">لم تُختر طابعة</string>
     <string name="error">خطأ: %1$s</string>
+    <string name="sync_now">مزامنة الآن</string>
+    <string name="status_sync">غير مرسلة: %1$d</string>
+    <string name="last_sync">آخر مزامنة: %1$s</string>
+    <string name="sync_done">أُرسلت %1$d تذكرة و%2$d صورة — الإعدادات v%3$d</string>
+    <string name="sync_rejected">رفض الخادم %1$d تذكرة — أبلغ المشرف</string>
+
+    <!-- connection to the factory server -->
+    <string name="test_connection">اختبار الاتصال بالخادم</string>
+    <string name="change_server_address">تغيير عنوان الخادم</string>
+    <string name="connection_ok">الاتصال بالخادم يعمل: %1$s</string>
+    <string name="clock_skew">تنبيه: ساعة الهاتف تختلف عن ساعة الخادم بحوالي %1$d دقيقة. اضبط التاريخ والوقت تلقائيًا.</string>
+    <string name="net_refused">تعذّر الاتصال بالخادم %1$s.\nتأكد أن الهاتف متصل بشبكة Wi‑Fi المصنع، وأن حاسوب الخادم يعمل، وأن خدمة TruckGate تعمل عليه، وأن جدار حماية Windows يسمح بالمنفذ 5080.</string>
+    <string name="net_no_route">الهاتف لا يرى الخادم %1$s على الشبكة.\nتأكد أن الهاتف على نفس شبكة Wi‑Fi المصنع (وليس بيانات الهاتف المحمول).</string>
+    <string name="net_timeout">انتهت مهلة الاتصال بالخادم %1$s.\nالخادم لا يجيب: تحقق من شبكة Wi‑Fi، ومن أن عنوان IP للخادم لم يتغيّر.</string>
+    <string name="net_unknown_host">اسم الخادم غير معروف: %1$s.\nاستعمل عنوان IP ثابتًا للخادم (مثل http://192.168.1.10:5080).</string>
+    <string name="net_tls">فشل الاتصال الآمن بالخادم %1$s (شهادة غير صالحة).</string>
+    <string name="net_server_error">ردّ الخادم بخطأ: %1$s</string>
+    <string name="address_changed">تم تغيير عنوان الخادم إلى %1$s، والاتصال يعمل.</string>
+    <string name="address_not_changed">لم يُغيَّر العنوان.</string>
+    <string name="address_wrong_server">هذا الرمز ليس من خادم هذا المصنع، تم رفضه.</string>
+    <string name="address_not_a_code">هذا ليس رمز عنوان الخادم. اعرضه من شاشة الإدارة: هواتف المقلع ← عنوان الخادم.</string>
+    <string name="address_old_code">هذا الرمز أقدم من العنوان الحالي، تم رفضه. اعرض رمزًا جديدًا.</string>
+
+    <!-- enrollment and server answers -->
+    <string name="enroll_scanned_address_code">هذا «رمز عنوان الخادم»، وليس رمز التسجيل.\nفي الحاسوب: هواتف المقلع ← اكتب اسم الهاتف ← «رمز تسجيل جديد»، ثم امسح الرمز الذي يظهر.</string>
+    <string name="enroll_code_damaged">رمز التسجيل غير مكتمل أو تالف. اعرض رمزًا جديدًا وامسحه مرة أخرى.</string>
+    <string name="enroll_not_a_code">هذا ليس رمز تسجيل TruckGate (قُرئ: %1$s…).\nفي الحاسوب: هواتف المقلع ← «رمز تسجيل جديد».</string>
+    <string name="srv_enroll_unknown">رمز التسجيل غير معروف لدى هذا الخادم. اعرض رمزًا جديدًا.</string>
+    <string name="srv_enroll_used">رمز التسجيل هذا استُعمل من قبل. كل رمز صالح لهاتف واحد: اعرض رمزًا جديدًا.</string>
+    <string name="srv_enroll_expired">انتهت صلاحية رمز التسجيل (15 دقيقة). اعرض رمزًا جديدًا.</string>
+    <string name="srv_key_enrolled">هذا الهاتف مسجّل من قبل بهذه المفاتيح.</string>
+    <string name="srv_device_not_allowed">هذا الهاتف ملغى أو غير مسموح له. راجع المدير.</string>
+    <string name="srv_request_time">رفض الخادم الطلب بسبب فرق الوقت. فعّل «التاريخ والوقت التلقائي» في الهاتف ثم أعد المحاولة.</string>
+    <string name="srv_signature_invalid">رفض الخادم توقيع الهاتف. إن تكرر ذلك أعد تسجيل الهاتف.</string>
+    <string name="srv_too_large">الملف المرسل أكبر مما يقبله الخادم.</string>
+    <string name="sync_photos_refused">%1$d صورة كبيرة جدًا لم يقبلها الخادم (التقطها إصدار سابق). التذكرة نفسها وصلت.</string>
+    <string name="ticket_qr_screen">عند تعطّل الطابعة: يمكن مسح هذا الرمز من الشاشة في البوابة</string>
 </resources>

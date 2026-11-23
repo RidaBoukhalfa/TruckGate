@@ -4,6 +4,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.IO.Ports" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TruckGate.Server.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../TruckGate.Crypto/TruckGate.Crypto.csproj" />
     <ProjectReference Include="../TruckGate.Data/TruckGate.Data.csproj" />
   </ItemGroup>

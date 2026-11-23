@@ -40,6 +40,7 @@ public class HttpTests(DatabaseFixture fx)
         Environment.SetEnvironmentVariable("ConnectionStrings__Owner", "");
         Environment.SetEnvironmentVariable("Server__PublicUrl", "http://test.local:5080");
         Environment.SetEnvironmentVariable("Data__Directory", dataDir);
+        Environment.SetEnvironmentVariable("Background__Disabled", "true");
 
         // reference data
         var admin = new AdminService(db);
@@ -111,10 +112,138 @@ public class HttpTests(DatabaseFixture fx)
         var decision = await Json(await Post(client, $"/api/gate/scans/{scanId}/decision", new { decision = "FULL" }));
         Assert.Equal("ENTERED", decision.GetProperty("state").GetString());
 
+        // receipt for the driver, scanned in the same box at exit (pictures again)
+        var tripId = scan.GetProperty("scan").GetProperty("tripId").GetInt64();
+        var receipt = await Json(await Post(client, $"/api/gate/trips/{tripId}/receipt", new { }));
+        Assert.StartsWith("TR1:", receipt.GetProperty("qrText").GetString());
+        Assert.Equal("05", receipt.GetProperty("fleetNumber").GetString());
+        var exit = await Json(await Post(client, "/api/gate/scan", new { gateId, qrText = receipt.GetProperty("qrText").GetString() }));
+        Assert.Equal("EXIT", exit.GetProperty("kind").GetString());
+        Assert.Equal("PENDING", exit.GetProperty("exit").GetProperty("outcome").GetString()); // seconds after entry
+        Assert.Equal("EXIT_TOO_SOON", exit.GetProperty("exit").GetProperty("reasons")[0].GetString());
+        Assert.Equal(4, exit.GetProperty("snapshots").GetArrayLength());
+        var exitScanId = exit.GetProperty("exit").GetProperty("scanId").GetInt64();
+        var exitDecision = await Json(await Post(client, $"/api/gate/exit/scans/{exitScanId}/decision", new { decision = "EMPTY" }));
+        Assert.Equal("PENDING_REVIEW", exitDecision.GetProperty("state").GetString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/review/queue")).StatusCode);
+        await Post(client, "/api/auth/logout", new { });
+
+        // the supervisor (here the admin) sees the trip, its pictures, and accepts it
+        await Json(await Post(client, "/api/auth/login", new { username = "boss", secret = "a-long-password" }));
+        var queue = await Json(await client.GetAsync("/api/review/queue"));
+        Assert.Contains(queue.EnumerateArray(), q => q.GetProperty("tripId").GetInt64() == tripId);
+        var detail = await Json(await client.GetAsync($"/api/trips/{tripId}"));
+        Assert.Equal(8, detail.GetProperty("snapshots").GetArrayLength());
+        Assert.Equal(2, detail.GetProperty("scans").GetArrayLength());
+        var firstPicture = detail.GetProperty("snapshots")[0].GetProperty("id").GetInt64();
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await Post(client, $"/api/review/snapshots/{firstPicture}/labels", new { type = "LOAD", value = "FULL" })).StatusCode);
+        var reviewed = await Json(await Post(client, $"/api/review/trips/{tripId}/decision", new { decision = "ACCEPT" }));
+        Assert.Equal("CLOSED", reviewed.GetProperty("state").GetString());
+        var dashboard = await Json(await client.GetAsync("/api/reports/dashboard"));
+        Assert.Equal(2, dashboard.GetProperty("entries").GetInt32());
+        Assert.Equal(1, dashboard.GetProperty("exits").GetInt32());
+
         // everything above is in the audit chain, attributed to the signed-in users
         var actor = await db.ReadAsync(c => Dapper.SqlMapper.ExecuteScalarAsync<string>(c,
-            "SELECT actor FROM tg.audit_log WHERE entity = 'gate_decisions' ORDER BY id DESC LIMIT 1"));
+            "SELECT actor FROM tg.audit_log WHERE entity = 'gate_decisions' ORDER BY id LIMIT 1"));
         Assert.Equal($"user:{keeper}", actor);
         Assert.True((await new AuditService(db).VerifyAsync()).Ok);
+    }
+
+    [Fact]
+    public async Task Quarry_phone_syncs_over_http_with_signed_requests_only()
+    {
+        var (db, appConnection) = await fx.CreateIsolatedDatabaseForServerAsync();
+        Environment.SetEnvironmentVariable("ConnectionStrings__App", appConnection);
+        Environment.SetEnvironmentVariable("ConnectionStrings__Owner", "");
+        Environment.SetEnvironmentVariable("Server__PublicUrl", "http://test.local:5080");
+        Environment.SetEnvironmentVariable("Data__Directory", Path.Combine(Path.GetTempPath(), "tg-sync-" + Guid.NewGuid().ToString("N")[..8]));
+        Environment.SetEnvironmentVariable("Background__Disabled", "true");
+        var t = DatabaseFixture.Tester;
+        var admin = new AdminService(db);
+        var driver = await admin.CreateDriverAsync("Driver", null, "EMPLOYEE", t);
+        await admin.CreateTruckAsync(5, "05", "Foton", driver, "01234 216 16", t);
+        await new AuthService(db).CreateFirstAdminAsync("boss", "Admin", "a-long-password");
+
+        await using var server = new Server();
+        var client = server.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+
+        // the admin creates an enrollment code; the phone enrolls with its two keys (no session, no CSRF)
+        await Json(await Post(client, "/api/auth/login", new { username = "boss", secret = "a-long-password" }));
+        var invite = await Json(await Post(client, "/api/admin/enrollments", new { label = "Quarry phone" }));
+
+        // the "new server address" QR is signed with the key phones receive in the enrollment code
+        var address = await Json(await client.GetAsync("/api/admin/server-address"));
+        Assert.Equal("http://test.local:5080", address.GetProperty("url").GetString());
+        var addressParts = address.GetProperty("qrText").GetString()!.Split('|');
+        Assert.Equal(new[] { "TGA1", "http://test.local:5080" }, addressParts[..2]);
+        using (var serverKey = System.Security.Cryptography.ECDsa.Create())
+        {
+            serverKey.ImportSubjectPublicKeyInfo(Convert.FromBase64String(invite.GetProperty("qrText").GetString()!.Split('|')[3]), out _);
+            Assert.True(serverKey.VerifyData(System.Text.Encoding.UTF8.GetBytes(string.Join('|', addressParts[..3])),
+                Convert.FromBase64String(addressParts[3]), System.Security.Cryptography.HashAlgorithmName.SHA256,
+                System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+        }
+        await Post(client, "/api/auth/logout", new { });
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/admin/server-address")).StatusCode);
+
+        // health: no login needed; says which program answers and whether its database is reachable
+        var health = await Json(await client.GetAsync("/health"));
+        Assert.Equal("ok", health.GetProperty("status").GetString());
+        Assert.Equal("truckgate", health.GetProperty("service").GetString());
+        Assert.Equal("ok", health.GetProperty("database").GetString());
+        Assert.StartsWith("1.", health.GetProperty("version").GetString());
+        using var phone = new QuarryPhone(0);
+        using var auth = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var phoneClient = server.CreateClient();
+        var enrolled = await Json(await phoneClient.PostAsJsonAsync("/api/enroll", new
+        {
+            token = invite.GetProperty("qrText").GetString()!.Split('|')[2],
+            ticketKeySpki = Convert.ToBase64String(phone.PublicKey),
+            authKeySpki = Convert.ToBase64String(auth.ExportSubjectPublicKeyInfo()),
+        }));
+        phone.DeviceId = enrolled.GetProperty("deviceId").GetInt32();
+        var serverTime = (await Json(await phoneClient.GetAsync("/api/time"))).GetProperty("serverTime").GetInt64();
+
+        HttpRequestMessage Signed(HttpMethod method, string path, byte[] body, string type, long? time = null)
+        {
+            var at = time ?? serverTime;
+            var message = DeviceAuthMessage.Build(phone.DeviceId, at, method.Method, path, body);
+            var sig = auth.SignData(message, System.Security.Cryptography.HashAlgorithmName.SHA256,
+                System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+            var req = new HttpRequestMessage(method, path) { Content = new ByteArrayContent(body) };
+            req.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(type);
+            req.Headers.Add("X-TG-Device", phone.DeviceId.ToString());
+            req.Headers.Add("X-TG-Time", at.ToString());
+            req.Headers.Add("X-TG-Signature", Convert.ToBase64String(sig));
+            return req;
+        }
+
+        var jpeg = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 7, 7, 7, 7, 0xFF, 0xD9 };
+        var raw = phone.TicketBytes(1, 5, driver, serverTime - 120, photoSha256: System.Security.Cryptography.SHA256.HashData(jpeg));
+        var body = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+        {
+            tickets = new[] { new { raw = Convert.ToBase64String(raw), printCount = 1, driverChangeReason = (string?)null } },
+        }));
+        var path = $"/api/devices/{phone.DeviceId}/sync";
+
+        var sync = await Json(await phoneClient.SendAsync(Signed(HttpMethod.Post, path, body, "application/json")));
+        Assert.Equal("OK", sync.GetProperty("results")[0].GetProperty("status").GetString());
+        Assert.True(sync.GetProperty("results")[0].GetProperty("photoWanted").GetBoolean());
+
+        // a body changed after signing, an old timestamp, or no signature are refused
+        var tampered = Signed(HttpMethod.Post, path, body, "application/json");
+        tampered.Content = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes("{\"tickets\":[]}"));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await phoneClient.SendAsync(tampered)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await phoneClient.SendAsync(Signed(HttpMethod.Post, path, body, "application/json", serverTime - 3600))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await phoneClient.PostAsync(path, new ByteArrayContent(body))).StatusCode);
+
+        var photoPath = $"/api/devices/{phone.DeviceId}/photos/1";
+        Assert.Equal(HttpStatusCode.NoContent, (await phoneClient.SendAsync(Signed(HttpMethod.Put, photoPath, jpeg, "image/jpeg"))).StatusCode);
+        Assert.Equal("SYNC", await db.ReadAsync(c => Dapper.SqlMapper.ExecuteScalarAsync<string>(c,
+            "SELECT first_seen_via FROM tg.tickets WHERE seq = 1")));
+        Assert.Equal(1L, await db.ReadAsync(c => Dapper.SqlMapper.ExecuteScalarAsync<long>(c, "SELECT count(*) FROM tg.ticket_photos")));
     }
 }

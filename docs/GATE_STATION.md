@@ -18,6 +18,11 @@ TruckGate server on the factory LAN. Nothing at the gate needs the internet.
 
 ## 2. Install the server
 
+**Windows:** use `TruckGate-Windows-Setup.exe` (it contains the server, PostgreSQL 16 and everything
+they need, and sets up the services); see `release/INSTALLATION_GUIDE.md`. The manual steps below
+are for Linux or for building from source.
+
+
 ```bash
 # 1. Database roles and database (once). Choose two strong passwords.
 psql -U postgres -v owner_pw='…' -v app_pw='…' -f deploy/db-setup.sql
@@ -99,6 +104,14 @@ look down into the body. Test both at night before the pilot.
 
 ## 5. At the gate (gatekeeper)
 
+**Receipt printer.** Install the gate's thermal printer (58 or 80 mm, USB or network) with its normal
+Windows driver and make it the default printer. The receipt is printed from the browser, so any printer
+works. To print without the dialog, start Chrome with `--kiosk-printing` (shortcut:
+`chrome.exe --kiosk-printing http://SERVER:5080`). Untick *print the receipt automatically* on the gate
+screen if there is no printer; a *reprint* button stays available.
+
+### Entry
+
 1. Log in with the username and PIN, choose the gate once.
 2. The driver hands over the paper ticket. **Scan it.** The cursor is always in the scan box; no click
    is needed.
@@ -112,9 +125,27 @@ look down into the body. Test both at night before the pilot.
 4. Compare the plate in the picture and the truck in front of you with the ticket, look at the load,
    then decide with the mouse or the keys **1–5**: full, partial, empty, different truck, plate
    unreadable. **Esc** clears the screen.
-5. Stamp the paper and put it in the daily envelope (it is not destroyed).
+5. The **receipt** prints: trip number, fleet number, plate, driver, time, load and a QR code signed by
+   the server. Give it to the driver.
+6. Stamp the paper ticket and put it in the daily envelope (it is not destroyed).
 
-A rejected or replayed ticket is recorded with its pictures too — attempts are evidence.
+**Damaged QR.** Click *damaged ticket?*, type the ticket number (`Q1-000123`) and the 6-character code
+printed under the QR. This works only once the quarry phone has synced that ticket, and the trip always
+goes to the supervisor.
+
+### Exit
+
+1. The driver shows the receipt. **Scan it in the same box** — the screen switches to *exit* by itself.
+2. The exit pictures are taken. Check the body is empty and press **1** (*left empty*) or **2**
+   (*left loaded*, which sends the trip to the supervisor and raises a critical alert).
+3. A truck leaving only minutes after entering (default under 3 minutes) is flagged for review.
+
+**Lost receipt.** The panel *trucks inside* lists every truck that entered and has not left. Use
+*exit without receipt* on the right line; it is recorded as such. The same panel has *reprint receipt*
+(every print is counted and copies are marked "copy 2", "copy 3"…).
+
+A rejected or replayed ticket, a forged or reused receipt are all recorded with their pictures —
+attempts are evidence.
 
 What the gatekeeper cannot do: change a decision after it is saved, delete a scan or a picture, see or
 change settings. A supervisor corrects mistakes by adding a review, never by editing.
@@ -129,7 +160,7 @@ phone's sequence (a ticket printed but never scanned at the gate).
 Every picture is checked against its SHA-256 fingerprint each time it is opened; a changed or missing
 file raises a critical alert.
 
-## Not built yet
+## After the gate
 
-Exit scan and gate receipt, supervisor review screen, alerts by SMS/Telegram, phone sync of tickets
-and voids, manual entry of the short code when a QR is damaged. See the plan in `DECISIONS.md`.
+Supervisor review, alerts (SMS / Telegram), the accountant's statements, the manager's dashboard and the
+export of training data are described in `OPERATIONS.md`. The field pilot is in `PILOT.md`.

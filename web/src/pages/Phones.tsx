@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
-import { api, type Device, type Invite, type Site } from '../api'
+import { api, type Device, type Invite, type ServerAddressCode, type Site } from '../api'
 import { useI18n } from '../i18n'
 import { ErrorBox, Section, fmtTime, useAction } from '../ui'
 
@@ -11,6 +11,7 @@ export default function PhonesPage() {
   const [sites, setSites] = useState<Site[]>([])
   const [label, setLabel] = useState('')
   const [invite, setInvite] = useState<{ img: string; expiresAt: string } | null>(null)
+  const [address, setAddress] = useState<{ img: string; url: string } | null>(null)
   const [reasons, setReasons] = useState<Record<number, string>>({})
   const [siteCode, setSiteCode] = useState('')
   const [siteName, setSiteName] = useState('')
@@ -29,6 +30,11 @@ export default function PhonesPage() {
     const img = await QRCode.toDataURL(inv.qrText, { errorCorrectionLevel: 'M', margin: 2, scale: 6 })
     setInvite({ img, expiresAt: inv.expiresAt })
     setLabel('')
+  })
+  const showAddress = () => act.run(async () => {
+    const code = await api.get<ServerAddressCode>('/api/admin/server-address')
+    const img = await QRCode.toDataURL(code.qrText, { errorCorrectionLevel: 'M', margin: 2, scale: 6 })
+    setAddress({ img, url: code.url })
   })
   const revoke = (d: Device) => act.run(async () => {
     await api.post(`/api/admin/devices/${d.id}/revoke`, { reason: reasons[d.id] ?? '' })
@@ -69,12 +75,13 @@ export default function PhonesPage() {
 
       <Section title={t('phones')}>
         <table>
-          <thead><tr><th>#</th><th>{t('label')}</th><th>{t('enrolled')}</th><th>{t('revoked')}</th><th /></tr></thead>
+          <thead><tr><th>#</th><th>{t('label')}</th><th>{t('enrolled')}</th><th>{t('lastSync')}</th><th>{t('revoked')}</th><th /></tr></thead>
           <tbody>
             {devices.map((d) => (
               <tr key={d.id} className={d.revokedAt ? 'inactive' : ''}>
                 <td>{d.id}</td><td>{d.label}<div className="muted small">{d.kind}</div></td>
                 <td>{fmtTime(d.enrolledAt, lang)}</td>
+                <td>{fmtTime(d.lastSyncAt, lang)}</td>
                 <td>{d.revokedAt ? `${fmtTime(d.revokedAt, lang)} — ${d.revokeReason}` : ''}</td>
                 <td>{!d.revokedAt && (
                   <div className="row">
@@ -87,6 +94,18 @@ export default function PhonesPage() {
             ))}
           </tbody>
         </table>
+      </Section>
+
+      <Section title={t('serverAddress')}>
+        <p className="muted">{t('serverAddressHelp')}</p>
+        {!address && <button disabled={act.busy} onClick={showAddress}>{t('serverAddressShow')}</button>}
+        {address && (
+          <div className="invite">
+            <img src={address.img} alt="server address QR" />
+            <p dir="ltr"><code>{address.url}</code></p>
+            <button onClick={() => setAddress(null)}>{t('close')}</button>
+          </div>
+        )}
       </Section>
 
       <Section title={t('sites')}>

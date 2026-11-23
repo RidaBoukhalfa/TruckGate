@@ -18,7 +18,7 @@ class CoreChecks {
     }
 
     fun runAll(): CoreChecks {
-        geofence(); issuance(); escPos(); enrollment(); pin(); signedConfig()
+        geofence(); issuance(); escPos(); enrollment(); pin(); signedConfig(); serverAddress()
         return this
     }
 
@@ -172,6 +172,26 @@ class CoreChecks {
         check("config/valid", SignedConfig.verify(payload, sig, serverKeys.public.encoded))
         check("config/tampered", !SignedConfig.verify(payload.replace("05", "06"), sig, serverKeys.public.encoded))
         check("config/garbage-signature", !SignedConfig.verify(payload, "not base64!", serverKeys.public.encoded))
+    }
+
+    private fun serverAddress() {
+        fun sign(text: String) = Base64.getEncoder().encodeToString(EcdsaDer.toRaw(Signature.getInstance("SHA256withECDSA").run {
+            initSign(serverKeys.private); update(text.toByteArray(Charsets.UTF_8)); sign()
+        }))
+        val body = "TGA1|http://192.168.1.20:5080|1795000000"
+        val ok = runCatching { ServerAddress.parseAndVerify("$body|${sign(body)}", serverKeys.public.encoded) }
+        check("addr/valid", ok.getOrNull() == ServerAddress("http://192.168.1.20:5080", 1_795_000_000)) { "$ok" }
+        val other = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
+        check("addr/other-server-refused", runCatching {
+            ServerAddress.parseAndVerify("$body|${sign(body)}", other.public.encoded) }.exceptionOrNull() is SecurityException)
+        check("addr/tampered-url-refused", runCatching {
+            ServerAddress.parseAndVerify("TGA1|http://192.168.1.66:5080|1795000000|${sign(body)}", serverKeys.public.encoded)
+        }.isFailure)
+        check("addr/not-an-address-code", runCatching {
+            ServerAddress.parseAndVerify("TGE1|http://192.168.1.20:5080|x|y", serverKeys.public.encoded) }.isFailure)
+        check("addr/bad-url", runCatching {
+            val b = "TGA1|ftp://192.168.1.20|1795000000"; ServerAddress.parseAndVerify("$b|${sign(b)}", serverKeys.public.encoded)
+        }.isFailure)
     }
 
     private fun pin() {

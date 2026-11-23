@@ -1,16 +1,52 @@
+using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Hosting.WindowsServices;
+using Microsoft.Extensions.Logging.EventLog;
 using Npgsql;
 using TruckGate.Api;
 using TruckGate.Application;
+using TruckGate.Application.Alerts;
 using TruckGate.Application.Cameras;
 using TruckGate.Data;
 
-var builder = WebApplication.CreateBuilder(args);
+// Under the Windows service manager the working directory is System32, so the program folder
+// (appsettings.json, wwwroot) is taken from the executable's location instead.
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = WindowsServiceHelpers.IsWindowsService() ? AppContext.BaseDirectory : null,
+});
+
+// Site configuration (database passwords, the address phones use, data folder) lives outside the
+// program folder so that an upgrade never overwrites it: TRUCKGATE_CONFIG, or on Windows
+// %ProgramData%\TruckGate\config\appsettings.json (written by the installer). Environment variables
+// and the command line still win over it.
+var siteConfig = Environment.GetEnvironmentVariable("TRUCKGATE_CONFIG");
+if (string.IsNullOrEmpty(siteConfig) && OperatingSystem.IsWindows())
+    siteConfig = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "TruckGate", "config", "appsettings.json");
+if (!string.IsNullOrEmpty(siteConfig))
+{
+    builder.Configuration.AddJsonFile(siteConfig, optional: true, reloadOnChange: false);
+    builder.Configuration.AddEnvironmentVariables();
+    builder.Configuration.AddCommandLine(args);
+}
+
+if (OperatingSystem.IsWindows())
+{
+    builder.Services.Configure<EventLogSettings>(s => s.SourceName = "TruckGate");
+    builder.Services.AddWindowsService(o => o.ServiceName = "TruckGate");
+}
+if (builder.Configuration["Logging:File:Path"] is { Length: > 0 } logDirectory)
+    builder.Logging.AddProvider(new FileLoggerProvider(logDirectory));
+
+var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+              ?? typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown";
 
 var appConnection = builder.Configuration.GetConnectionString("App")
                     ?? throw new InvalidOperationException("ConnectionStrings:App is required.");
@@ -34,6 +70,29 @@ builder.Services.AddSingleton(sp => new CameraService(sp.GetRequiredService<Db>(
 builder.Services.AddSingleton(_ => EnrollmentOptions.Default(
     builder.Configuration["Server:PublicUrl"] ?? throw new InvalidOperationException("Server:PublicUrl is required (the address phones use).")));
 builder.Services.AddSingleton<EnrollmentService>();
+builder.Services.AddSingleton<ExitService>();
+builder.Services.AddSingleton<ReviewService>();
+builder.Services.AddSingleton<SyncService>();
+builder.Services.AddSingleton<ReportService>();
+builder.Services.AddSingleton<SettingsService>();
+builder.Services.AddSingleton<Watchdog>();
+builder.Services.AddHttpClient("telegram", http => http.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddSingleton<ITelegramSender>(sp => new TelegramSender(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient("telegram"),
+    builder.Configuration["Telegram:BaseUrl"] ?? "https://api.telegram.org"));
+builder.Services.AddHttpClient("whatsapp", http => http.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddSingleton<IWhatsAppSender>(sp => new WhatsAppSender(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient("whatsapp"),
+    builder.Configuration["WhatsApp:BaseUrl"] ?? "https://graph.facebook.com"));
+builder.Services.AddSingleton<SerialSmsSender>();
+builder.Services.AddSingleton(_ => new ZteRouterSmsSender());
+builder.Services.AddSingleton<ISmsSender, SmsSender>();
+builder.Services.AddSingleton<AlertService>();
+if (builder.Configuration["Background:Disabled"] != "true")
+{
+    builder.Services.AddHostedService<WatchdogHost>();
+    builder.Services.AddHostedService<AlertDispatchHost>();
+}
 
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
@@ -75,7 +134,12 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(Policies.Gate, p => p.RequireRole("GATEKEEPER", "SUPERVISOR", "ADMIN"))
     .AddPolicy(Policies.Admin, p => p.RequireRole("ADMIN"))
     .AddPolicy(Policies.Audit, p => p.RequireRole("ADMIN", "MANAGER", "AUDITOR"))
-    .AddPolicy(Policies.Evidence, p => p.RequireRole("GATEKEEPER", "SUPERVISOR", "ADMIN", "MANAGER", "AUDITOR"));
+    .AddPolicy(Policies.Evidence, p => p.RequireRole("GATEKEEPER", "SUPERVISOR", "ADMIN", "MANAGER", "AUDITOR"))
+    .AddPolicy(Policies.Review, p => p.RequireRole("SUPERVISOR", "ADMIN"))
+    .AddPolicy(Policies.Alerts, p => p.RequireRole("SUPERVISOR", "ADMIN", "MANAGER"))
+    .AddPolicy(Policies.Reports, p => p.RequireRole("SUPERVISOR", "ADMIN", "MANAGER", "ACCOUNTANT", "AUDITOR"))
+    .AddPolicy(Policies.Pay, p => p.RequireRole("ACCOUNTANT", "ADMIN", "MANAGER"))
+    .AddPolicy(Policies.PayWrite, p => p.RequireRole("ACCOUNTANT", "ADMIN"));
 
 var app = builder.Build();
 
@@ -84,7 +148,22 @@ var app = builder.Build();
 if (!string.IsNullOrEmpty(ownerConnection))
 {
     await using var owner = NpgsqlDataSource.Create(ownerConnection);
-    foreach (var name in await DbMigrator.MigrateAsync(owner)) app.Logger.LogInformation("Applied migration {Migration}", name);
+    var applied = await DbMigrator.MigrateAsync(owner);
+    foreach (var name in applied) app.Logger.LogInformation("Applied migration {Migration}", name);
+    if (args.Length > 0 && args[0] == "migrate")
+    {
+        Console.WriteLine(applied.Count == 0 ? "Database is up to date." : $"Applied {applied.Count} migration(s).");
+        return;
+    }
+}
+
+// `TruckGate.Api migrate` — used by the installer and for upgrades. The owner connection is given only
+// for this run (environment variable ConnectionStrings__Owner) and is never stored for the service.
+if (args.Length > 0 && args[0] == "migrate")
+{
+    Console.Error.WriteLine("migrate needs ConnectionStrings:Owner (e.g. environment variable ConnectionStrings__Owner).");
+    Environment.ExitCode = 2;
+    return;
 }
 
 if (args.Length > 0 && args[0] == "create-admin")
@@ -140,11 +219,32 @@ app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+// Used by the installer, the gate-station launcher and the "change server address" tool to tell
+// "server not reachable" apart from "server running but database down".
+app.MapGet("/health", async (Db db, CancellationToken ct) =>
+{
+    try
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        await db.ReadAsync(c => Dapper.SqlMapper.ExecuteScalarAsync<int>(c, new Dapper.CommandDefinition("SELECT 1",
+            cancellationToken: timeout.Token)), timeout.Token);
+        return Results.Ok(new { status = "ok", service = "truckgate", version, database = "ok" });
+    }
+    catch (Exception e) when (e is NpgsqlException or OperationCanceledException or TimeoutException or System.Net.Sockets.SocketException)
+    {
+        return Results.Json(new { status = "degraded", service = "truckgate", version, database = "unreachable" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+});
 app.MapAuthEndpoints();
 app.MapGateEndpoints();
 app.MapAdminEndpoints();
 app.MapPhoneEndpoints();
+app.MapExitEndpoints();
+app.MapReviewEndpoints();
+app.MapAlertEndpoints();
+app.MapReportEndpoints();
 app.MapFallbackToFile("index.html");
 
 await app.RunAsync();

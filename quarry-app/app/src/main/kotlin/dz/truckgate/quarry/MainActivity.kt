@@ -5,6 +5,7 @@ import android.app.ActivityManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,11 +22,15 @@ import dz.truckgate.quarry.ui.QuarryApp
 class MainActivity : FragmentActivity() {
     private val vm: QuarryViewModel by viewModels()
 
-    private val needed = arrayOf(
-        Manifest.permission.CAMERA,
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.BLUETOOTH_CONNECT,
-    )
+    // BLUETOOTH_CONNECT is a runtime permission only from Android 12 (API 31); on Android 11 the
+    // manifest's BLUETOOTH permission is enough. Coarse location is asked together with fine, as
+    // Android 12+ requires, but precise (fine) location is what the quarry boundary check needs.
+    private val needed: Array<String> = buildList {
+        add(Manifest.permission.CAMERA)
+        add(Manifest.permission.ACCESS_FINE_LOCATION)
+        add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(Manifest.permission.BLUETOOTH_CONNECT)
+    }.toTypedArray()
 
     private var granted by mutableStateOf(false)
 

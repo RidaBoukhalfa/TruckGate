@@ -19,8 +19,9 @@ on paper, carried by the driver and scanned once at the factory gate.
 | Gate / server | Quarry phones' **public** keys only | Verify tickets | Create a valid quarry ticket |
 | Driver | Paper ticket | Present it | Alter it (signature breaks), reuse it (single use) |
 
-The gate station has its own key (for receipts, §8). A gate-station key is never accepted for a
-quarry ticket (`WRONG_DEVICE_KIND`), so the gate cannot forge quarry tickets with its own key either.
+The factory server has its own key (it signs phone configurations and gate receipts, §9). It is not a
+registered quarry phone, so it can never produce an acceptable quarry ticket; a device registered as
+`GATE_STATION` is refused for quarry tickets (`WRONG_DEVICE_KIND`).
 
 ## 2. Binary layout (127 bytes, big-endian)
 
@@ -72,6 +73,14 @@ For a damaged QR the gatekeeper types the printed ticket ID and short code:
 
 A short code is **not** a signature. A ticket entered this way is matched against the synced copy of
 the ticket on the server and is always PENDING until a supervisor confirms it.
+
+Server behaviour for manual entry (ticket ID + short code):
+
+| Situation | Outcome | Reason |
+|---|---|---|
+| Ticket ID not in the server (phone not synced yet) | REJECT | `NO_SYNCED_COPY` |
+| Short code differs from the synced copy | REJECT | `BAD_SHORT_CODE` |
+| Otherwise | §6 policy applied to the synced bytes, then at least PENDING | `MANUAL_ENTRY` added |
 
 ## 6. Gate verification policy (normative order)
 
@@ -133,14 +142,45 @@ Nothing is ever discarded: every scan, including REJECT, is stored with its snap
 ## 8. Void record (quarry phone)
 
 An operator can void a ticket on the phone (reason required, fingerprint required). The phone signs,
-with the **ticket key**, the UTF-8 text `TGVOID1|<ticket id>|<unix seconds>|<reason>` and stores the
-raw `r‖s` signature. Void records are uploaded with sync (step 6); the server then stores a `VOIDED`
-ticket event and the gate rejects the ticket with `VOIDED`. A void never deletes the ticket.
+with the **ticket key**, the UTF-8 text `TGVOID1|<ticket id>|<unix seconds>|<reason>` (reason trimmed of
+leading and trailing spaces, never empty) and stores the raw `r‖s` signature. Void records are uploaded
+with sync; the server verifies the signature with the phone's ticket key, then stores a `VOIDED` ticket
+event and the gate rejects the ticket with `VOIDED`. A void never deletes the ticket. A void received for
+a ticket that was already used at the gate is stored and raises an alert (it cannot undo the entry).
 
-## 9. Gate receipt (draft — implemented in step 4)
+## 9. Gate receipt
 
-Printed by the gate for the driver and scanned again at exit. Same conventions, prefix `TR1:`,
-`kind = 0x10`, signed by the gate-station key. Layout will be fixed in step 4 and added to the vectors.
+Printed by the gate station for the driver after the entry decision, and scanned at exit to find the
+trip. Signed by the **server key** (the key phones pin at enrollment). Only the server reads receipts.
+
+| Offset | Size | Field | Type | Notes |
+|---:|---:|---|---|---|
+| 0 | 1 | `version` | u8 | `1` |
+| 1 | 1 | `kind` | u8 | `0x10` gate receipt |
+| 2 | 4 | `trip_id` | u32 | Trip number shown as `T-{trip_id zero-padded to 6}` |
+| 6 | 2 | `gate_id` | u16 | Gate of the entry |
+| 8 | 4 | `entered_at` | u32 | Unix seconds, server time of the entry scan |
+| 12 | 2 | `truck_id` | u16 | |
+| 14 | 2 | `ticket_device_id` | u16 | Quarry ticket used for the entry |
+| 16 | 4 | `ticket_seq` | u32 | |
+| 20 | 1 | `load` | u8 | `0` unknown · `1` full · `2` partial · `3` empty |
+| 21 | 64 | `signature` | bytes | ECDSA P-256 / SHA-256 over bytes `0..20`, raw `r‖s` |
+
+QR text: `TR1:` + Base45 of the 85 bytes. Decoders MUST reject: another prefix, length ≠ 85,
+`version` ≠ 1, `kind` ≠ `0x10`, `load` > 3, and the Base45 errors of §4.
+
+**Exit policy.** Stage A (REJECT, stop): `MALFORMED`, `BAD_SIGNATURE`. Stage B (server lookups):
+
+| Check | Reason | Class |
+|---|---|---|
+| Trip does not exist, or its truck/ticket differ from the receipt | `RECEIPT_MISMATCH` | reject |
+| Trip already has an exit scan | `ALREADY_EXITED` | reject |
+| Entry not decided yet (trip still `AT_GATE`) | `ENTRY_NOT_DECIDED` | reject |
+| `now − entered_at < min_unload_s` (default 180) | `EXIT_TOO_SOON` | pending |
+
+When the receipt is lost the gatekeeper selects the truck among the trucks inside; the scan is stored as
+`MANUAL_SELECT` with the note `RECEIPT_MISSING`. After the scan the gatekeeper records `EXIT_EMPTY` or
+`EXIT_LOADED`; a loaded exit sends the trip to review and raises a critical alert.
 
 ## 10. Conformance
 
@@ -152,5 +192,7 @@ Every implementation must pass all files in `test-vectors/`:
 | `signature.json` | Signature validity, including tamper, wrong key, malleated, zero values |
 | `malformed.json` | Every case must fail decoding |
 | `policy.json` | Full gate decision per case, with its own context |
+| `void.json` | Void record message bytes (UTF-8, trimming) and signature validity per key |
+| `receipt.json` | Gate receipt fields ↔ bytes ↔ QR text, server-key signature, malformed cases |
 
 Regenerate with `python reference/gen_vectors.py`; CI runs `--check` so vectors cannot drift silently.

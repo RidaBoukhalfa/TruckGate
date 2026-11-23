@@ -27,30 +27,49 @@ class ServerApi(private val baseUrl: String) {
         return Enrolled(json.getInt("deviceId"), json.getLong("serverTime"))
     }
 
+    /** Server clock (unauthenticated): used only to time-stamp the signed requests that follow. */
+    fun serverTime(): Long = request("GET", "/api/time", null, emptyMap()).getLong("serverTime")
+
     /** [sign] signs with the phone's auth key and returns raw r||s. */
     fun fetchConfig(deviceId: Int, unixSeconds: Long, sign: (ByteArray) -> ByteArray): SignedConfig {
         val path = "/api/devices/$deviceId/config"
-        val message = DeviceAuth.message(deviceId, unixSeconds, "GET", path, ByteArray(0))
-        val headers = mapOf(
+        val json = request("GET", path, null, authHeaders(deviceId, unixSeconds, "GET", path, ByteArray(0), sign))
+        return SignedConfig(json.getString("payload"), json.getString("signature"))
+    }
+
+    /** Uploads tickets, print counts and voids; the body is covered by the device signature. */
+    fun sync(deviceId: Int, unixSeconds: Long, body: ByteArray, sign: (ByteArray) -> ByteArray): JSONObject {
+        val path = "/api/devices/$deviceId/sync"
+        return request("POST", path, body, authHeaders(deviceId, unixSeconds, "POST", path, body, sign))
+    }
+
+    fun uploadPhoto(deviceId: Int, seq: Long, unixSeconds: Long, jpeg: ByteArray, sign: (ByteArray) -> ByteArray) {
+        val path = "/api/devices/$deviceId/photos/$seq"
+        request("PUT", path, jpeg, authHeaders(deviceId, unixSeconds, "PUT", path, jpeg, sign), "image/jpeg")
+    }
+
+    private fun authHeaders(deviceId: Int, unixSeconds: Long, method: String, path: String, body: ByteArray,
+                            sign: (ByteArray) -> ByteArray): Map<String, String> {
+        val message = DeviceAuth.message(deviceId, unixSeconds, method, path, body)
+        return mapOf(
             "X-TG-Device" to deviceId.toString(),
             "X-TG-Time" to unixSeconds.toString(),
             "X-TG-Signature" to Base64.getEncoder().encodeToString(sign(message)),
         )
-        val json = request("GET", path, null, headers)
-        return SignedConfig(json.getString("payload"), json.getString("signature"))
     }
 
-    private fun request(method: String, path: String, body: ByteArray?, headers: Map<String, String>): JSONObject {
+    private fun request(method: String, path: String, body: ByteArray?, headers: Map<String, String>,
+                        contentType: String = "application/json; charset=utf-8"): JSONObject {
         val conn = URL(baseUrl + path).openConnection() as HttpURLConnection
         try {
             conn.requestMethod = method
             conn.connectTimeout = 8_000
-            conn.readTimeout = 15_000
+            conn.readTimeout = 30_000
             conn.setRequestProperty("Accept", "application/json")
             headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
             if (body != null) {
                 conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                conn.setRequestProperty("Content-Type", contentType)
                 conn.outputStream.use { it.write(body) }
             }
             val status = conn.responseCode
@@ -60,7 +79,7 @@ class ServerApi(private val baseUrl: String) {
                 val err = runCatching { JSONObject(text) }.getOrNull()
                 throw ServerException(err?.optString("error") ?: "HTTP_$status", err?.optString("message") ?: "HTTP $status")
             }
-            return JSONObject(text)
+            return if (text.isBlank()) JSONObject() else JSONObject(text)
         } finally {
             conn.disconnect()
         }

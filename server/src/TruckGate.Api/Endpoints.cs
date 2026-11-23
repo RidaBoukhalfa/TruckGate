@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using TruckGate.Application;
 using TruckGate.Application.Cameras;
+using TruckGate.Crypto;
 using TruckGate.Data;
 
 namespace TruckGate.Api;
@@ -13,6 +14,11 @@ public static class Policies
     public const string Admin = "admin";
     public const string Audit = "audit";
     public const string Evidence = "evidence";
+    public const string Review = "review";
+    public const string Alerts = "alerts";
+    public const string Reports = "reports";
+    public const string Pay = "pay";
+    public const string PayWrite = "pay-write";
 }
 
 internal static class HttpContextUser
@@ -27,7 +33,9 @@ internal static class HttpContextUser
 
 public sealed record LoginRequest(string Username, string Secret);
 public sealed record ScanRequest(short GateId, string QrText);
-public sealed record ScanView(ScanEntryResult Scan, TicketNames? Names, IReadOnlyList<SnapshotInfo> Snapshots);
+public sealed record ScanView(string Kind, ScanEntryResult Scan, TicketNames? Names, IReadOnlyList<SnapshotInfo> Snapshots);
+public sealed record ExitView(string Kind, ScanExitResult Exit, IReadOnlyList<SnapshotInfo> Snapshots);
+public sealed record ManualCodeRequest(short GateId, string TicketId, string ShortCode);
 public sealed record DecisionRequest(EntryDecision Decision, string? Note);
 public sealed record RevokeRequest(string Reason);
 public sealed record CreateSiteRequest(string Code, string Name, string Kind);
@@ -44,8 +52,27 @@ public sealed record InviteRequest(string Label);
 public sealed record ProbeRequest(string OnvifUrl, string? Username, string? Password);
 public sealed record TestSnapshotRequest(string SnapshotUrl, string? Username, string? Password);
 
-internal static class Endpoints
+internal static partial class Endpoints
 {
+    /// <summary>Starts the camera burst, runs the scan, then stores the pictures under the scan id.</summary>
+    internal static async Task<(T Result, IReadOnlyList<SnapshotInfo> Pictures)> WithPicturesAsync<T>(CameraService cams,
+        short gateId, Func<Task<T>> scan, Func<T, long> scanId)
+    {
+        var capture = cams.CaptureAsync(gateId, CancellationToken.None);
+        T result;
+        try
+        {
+            result = await scan();
+        }
+        catch
+        {
+            try { await capture; } catch { /* the scan error is the one to report */ }
+            throw;
+        }
+        var pictures = await cams.StoreAsync(scanId(result), await capture, CancellationToken.None);
+        return (result, pictures);
+    }
+
     public static void MapAuthEndpoints(this WebApplication app)
     {
         var auth = app.MapGroup("/api/auth");
@@ -82,23 +109,31 @@ internal static class Endpoints
         gate.MapGet("/gates", async (AdminService svc, CancellationToken ct) => Results.Ok(await svc.ListGatesAsync(ct)));
 
         // The ticket is "burned" (checked and used) and the cameras of this gate take their pictures
-        // at the same time. Pictures are kept for every scan, including rejected ones.
-        gate.MapPost("/scan", async (ScanRequest r, GateService svc, CameraService cams, HttpContext ctx, CancellationToken ct) =>
+        // at the same time. Pictures are kept for every scan, including rejected ones. The same box takes
+        // the exit receipt (TR1:), so the gatekeeper never has to choose a mode.
+        gate.MapPost("/scan", async (ScanRequest r, GateService svc, ExitService exits, CameraService cams, HttpContext ctx,
+            CancellationToken ct) =>
         {
-            var capture = cams.CaptureAsync(r.GateId, CancellationToken.None);
-            ScanEntryResult result;
-            try
+            var text = (r.QrText ?? "").Trim();
+            if (text.StartsWith(GateReceipt.QrPrefix, StringComparison.Ordinal))
             {
-                result = await svc.ScanEntryAsync(new ScanEntryRequest(r.GateId, r.QrText ?? "", ctx.UserId()), ctx.Actor(), ct);
+                var (exit, exitPictures) = await WithPicturesAsync(cams, r.GateId,
+                    () => exits.ScanReceiptAsync(r.GateId, text, ctx.UserId(), ctx.Actor(), ct), x => x.ScanId);
+                return Results.Ok(new ExitView("EXIT", exit, exitPictures));
             }
-            catch
-            {
-                try { await capture; } catch { /* the scan error is the one to report */ }
-                throw;
-            }
-            var snapshots = await cams.StoreAsync(result.ScanId, await capture, CancellationToken.None);
+            var (result, pictures) = await WithPicturesAsync(cams, r.GateId,
+                () => svc.ScanEntryAsync(new ScanEntryRequest(r.GateId, text, ctx.UserId()), ctx.Actor(), ct), x => x.ScanId);
             var names = result.Ticket is null ? null : await svc.NamesAsync(result.Ticket, ct);
-            return Results.Ok(new ScanView(result, names, snapshots));
+            return Results.Ok(new ScanView("ENTRY", result, names, pictures));
+        });
+
+        // Damaged QR: ticket number + short code, checked against the copy synced from the phone.
+        gate.MapPost("/manual", async (ManualCodeRequest r, GateService svc, CameraService cams, HttpContext ctx, CancellationToken ct) =>
+        {
+            var (result, pictures) = await WithPicturesAsync(cams, r.GateId,
+                () => svc.ScanManualAsync(r.GateId, r.TicketId, r.ShortCode, ctx.UserId(), ctx.Actor(), ct), x => x.ScanId);
+            var names = result.Ticket is null ? null : await svc.NamesAsync(result.Ticket, ct);
+            return Results.Ok(new ScanView("ENTRY", result, names, pictures));
         });
 
         gate.MapPost("/scans/{scanId:long}/decision", async (long scanId, DecisionRequest r, GateService svc,
@@ -131,6 +166,8 @@ internal static class Endpoints
         });
         admin.MapPost("/enrollments", async (InviteRequest r, EnrollmentService svc, HttpContext ctx, CancellationToken ct) =>
             Results.Ok(await svc.CreateInviteAsync(r.Label, ctx.Actor(), ct)));
+        admin.MapGet("/server-address", (EnrollmentService svc) =>
+            Results.Ok(svc.CreateServerAddressCode(DateTimeOffset.UtcNow.ToUnixTimeSeconds())));
 
         // sites and gates
         admin.MapGet("/sites", async (AdminService svc, CancellationToken ct) => Results.Ok(await svc.ListSitesAsync(ct)));
@@ -222,19 +259,68 @@ internal static class Endpoints
     /// <summary>Quarry phones: no user session, their own signatures.</summary>
     public static void MapPhoneEndpoints(this WebApplication app)
     {
+        app.MapGet("/api/time", async (Db db, CancellationToken ct) =>
+            Results.Ok(new { serverTime = await db.ReadAsync(c => Dapper.SqlMapper.ExecuteScalarAsync<long>(c,
+                "SELECT extract(epoch FROM now())::bigint"), ct) }));
         app.MapPost("/api/enroll", async (EnrollRequest req, EnrollmentService svc, CancellationToken ct) =>
             Results.Ok(await svc.EnrollAsync(req, ct)));
         app.MapGet("/api/devices/{id:int}/config", async (int id, HttpContext ctx, EnrollmentService svc, CancellationToken ct) =>
         {
-            var h = ctx.Request.Headers;
-            if (!int.TryParse(h["X-TG-Device"].FirstOrDefault(), out var device) ||
-                !long.TryParse(h["X-TG-Time"].FirstOrDefault(), out var time) ||
-                h["X-TG-Signature"].FirstOrDefault() is not { Length: > 0 } signature)
-                throw TruckGateException.Unauthorized("AUTH_MISSING", "Device signature headers are missing.");
-            if (device != id) throw TruckGateException.Unauthorized("DEVICE_MISMATCH", "Signed device does not match the URL.");
-            await svc.AuthenticateAsync(new DeviceAuthHeaders(device, time, signature), "GET", ctx.Request.Path.Value ?? "", [], ct);
+            await DeviceAuthAsync(ctx, svc, id, [], ct);
             return Results.Ok(await svc.GetSignedConfigAsync(id, ct));
         });
+        app.MapPost("/api/devices/{id:int}/sync", async (int id, HttpContext ctx, EnrollmentService enroll, SyncService sync,
+            CancellationToken ct) =>
+        {
+            var body = await ReadBodyAsync(ctx, 4 * 1024 * 1024, ct);
+            await DeviceAuthAsync(ctx, enroll, id, body, ct);
+            SyncRequest? request;
+            try
+            {
+                request = System.Text.Json.JsonSerializer.Deserialize<SyncRequest>(body,
+                    new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                throw TruckGateException.Validation("SYNC_INVALID", "The sync body is not valid JSON.");
+            }
+            return Results.Ok(await sync.SyncAsync(id, request ?? new SyncRequest([]), ct));
+        });
+        app.MapPut("/api/devices/{id:int}/photos/{seq:long}", async (int id, long seq, HttpContext ctx, EnrollmentService enroll,
+            SyncService sync, CancellationToken ct) =>
+        {
+            var body = await ReadBodyAsync(ctx, SyncService.MaxPhotoBytes, ct);
+            await DeviceAuthAsync(ctx, enroll, id, body, ct);
+            await sync.StorePhotoAsync(id, seq, body, ct);
+            return Results.NoContent();
+        });
+    }
+
+    private static async Task DeviceAuthAsync(HttpContext ctx, EnrollmentService svc, int id, byte[] body, CancellationToken ct)
+    {
+        var h = ctx.Request.Headers;
+        if (!int.TryParse(h["X-TG-Device"].FirstOrDefault(), out var device) ||
+            !long.TryParse(h["X-TG-Time"].FirstOrDefault(), out var time) ||
+            h["X-TG-Signature"].FirstOrDefault() is not { Length: > 0 } signature)
+            throw TruckGateException.Unauthorized("AUTH_MISSING", "Device signature headers are missing.");
+        if (device != id) throw TruckGateException.Unauthorized("DEVICE_MISMATCH", "Signed device does not match the URL.");
+        await svc.AuthenticateAsync(new DeviceAuthHeaders(device, time, signature), ctx.Request.Method,
+            ctx.Request.Path.Value ?? "", body, ct);
+    }
+
+    private static async Task<byte[]> ReadBodyAsync(HttpContext ctx, int maxBytes, CancellationToken ct)
+    {
+        if (ctx.Request.ContentLength > maxBytes)
+            throw TruckGateException.Validation("BODY_TOO_LARGE", $"At most {maxBytes / 1024} KB.");
+        using var ms = new MemoryStream();
+        var buffer = new byte[81920];
+        int n;
+        while ((n = await ctx.Request.Body.ReadAsync(buffer, ct)) > 0)
+        {
+            ms.Write(buffer, 0, n);
+            if (ms.Length > maxBytes) throw TruckGateException.Validation("BODY_TOO_LARGE", $"At most {maxBytes / 1024} KB.");
+        }
+        return ms.ToArray();
     }
 }
 
@@ -244,9 +330,9 @@ internal static class Setup
     public static async Task CreateFirstAdminAsync(AuthService auth)
     {
         Console.Write("Username: ");
-        var username = Console.ReadLine()?.Trim() ?? "";
+        var username = Clean(Console.ReadLine());
         Console.Write("Full name: ");
-        var fullName = Console.ReadLine()?.Trim() ?? "";
+        var fullName = Clean(Console.ReadLine());
         var password = ReadHidden("Password (10+ characters): ");
         if (password != ReadHidden("Repeat password: "))
         {
@@ -266,10 +352,13 @@ internal static class Setup
         }
     }
 
+    /// <summary>Input piped from a file or another program may start with a byte-order mark.</summary>
+    private static string Clean(string? line) => (line ?? "").Replace("\uFEFF", "").Trim();
+
     private static string ReadHidden(string prompt)
     {
         Console.Write(prompt);
-        if (Console.IsInputRedirected) return Console.ReadLine() ?? "";
+        if (Console.IsInputRedirected) return (Console.ReadLine() ?? "").Replace("\uFEFF", "").TrimEnd('\r', '\n');
         var sb = new System.Text.StringBuilder();
         while (true)
         {

@@ -2,3 +2,12 @@
 gradlew text eol=lf
 *.bat text eol=crlf
 *.jar binary
+
+# Windows installer sources keep CRLF line endings (Windows PowerShell 5.1, Inno Setup, cmd)
+deploy/windows/**/*.ps1 text eol=crlf
+deploy/windows/**/*.cmd text eol=crlf
+deploy/windows/**/*.sql text eol=crlf
+deploy/windows/*.iss text eol=crlf
+deploy/windows/*.txt text eol=crlf
+.github/scripts/*.ps1 text eol=crlf
+*.ico binary
